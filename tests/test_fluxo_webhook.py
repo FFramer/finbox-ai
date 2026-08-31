@@ -176,10 +176,10 @@ def cliente_com_ia(monkeypatch, financeiro, resposta="O CDI e ...", envio=None):
     monkeypatch.setattr(authorization, "ALLOWED_GROUP_ID", "")
     app.dependency_overrides[get_state_store] = lambda: InMemoryBotState(True)
 
-    async def fake_classify(client, texto):
+    async def fake_classify(client, conversa, resumo=None):
         return financeiro
 
-    async def fake_answer(client, texto):
+    async def fake_answer(client, conversa, resumo=None):
         return resposta
 
     monkeypatch.setattr(main, "classify_financial_topic", fake_classify)

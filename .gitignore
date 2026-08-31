@@ -15,3 +15,7 @@ qrcode-*.png
 
 # artefatos locais
 .pytest_cache/
+
+# Skills locais do Codex
+/.agents/skills/
+/skills-lock.json

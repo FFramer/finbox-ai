@@ -1,5 +1,7 @@
 # Finbox AI
 
+> Implementacao do historico: [docs/HISTORY.md](docs/HISTORY.md).
+
 > Assistente financeiro pessoal no WhatsApp, restrito a uma allowlist, que
 > transforma mensagens e documentos financeiros em informação estruturada.
 
@@ -23,6 +25,8 @@ guard: mensagem própria?  ──── ignora (evita loop de auto-resposta)
 guard: allowlist          ──── ignora quem não está autorizado
    ↓
 comandos /ativar /desativar ── estado persistido no Supabase
+   ↓
+monta o contexto      ─────── resumo da conversa + últimas mensagens
    ↓
 guard: é assunto financeiro? ─ recusa o que está fora do domínio
    ↓
@@ -55,7 +59,7 @@ saem de `Decimal` em Python, o que torna o total verificável e testável.
 - Python 3.11+
 - Uma instância da [Evolution API](https://doc.evolution-api.com) v2 conectada ao WhatsApp
 - Uma conta na [OpenRouter](https://openrouter.ai) (permite usar modelos de vários provedores)
-- Um projeto no [Supabase](https://supabase.com) (opcional — sem ele o estado fica em memória)
+- Um projeto no [Supabase](https://supabase.com) (obrigatorio em producao; fallback em memoria no desenvolvimento)
 
 ## Instalação
 
@@ -87,12 +91,17 @@ cp .env.example .env
 | `ALLOWED_LID` | ao menos um | Identificador LID de quem pode usar |
 | `ALLOWED_PHONE` | ao menos um | Telefone de quem pode usar (só dígitos) |
 | `ALLOWED_GROUP_ID` | não | Grupo autorizado; vazio bloqueia todos |
-| `OPENROUTER_API_KEY` | para IA | Chave da OpenRouter |
-| `OPENROUTER_MODEL_GUARD` | para IA | Modelo do classificador |
-| `OPENROUTER_MODEL_ANSWER` | para IA | Modelo das respostas e da extração |
+| `OPENROUTER_API_KEY` | sim | Chave da OpenRouter |
+| `OPENROUTER_MODEL_GUARD` | sim | Modelo do classificador |
+| `OPENROUTER_MODEL_ANSWER` | sim | Modelo das respostas e da extração |
 | `SUPABASE_URL` | não | Sem ela o estado não sobrevive a restart |
 | `SUPABASE_KEY` | não | Chave **secreta** (`service_role` / `sb_secret_`) |
 | `EXPOSE_DOCS` | não | `1` publica `/docs`; padrão é desligado |
+| `HISTORY_WINDOW` | não | Mensagens no contexto; padrão 20 |
+| `GUARD_WINDOW` | não | Mensagens vistas pelo guard; padrão 6 |
+| `SUMMARY_EVERY` | não | Mensagens entre resumos; padrão 20 |
+| `HISTORY_MAX_CHARS` | não | Teto do contexto em caracteres; padrão 12000 |
+| `STUCK_AFTER_MINUTES` | não | Idade para varrer órfãs na subida; padrão 15 |
 
 Gere os segredos com:
 
@@ -105,28 +114,14 @@ uma vez — em vez de falhar mais tarde com um erro sem relação com a causa.
 
 ### Banco de dados
 
-Se for usar o Supabase, crie a tabela de estado:
+Para levantar um projeto novo, execute [`supabase/schema.sql`](supabase/schema.sql)
+no SQL Editor. O arquivo é idempotente e cria tudo o que a aplicação espera: a
+tabela de estado (`bot_state`) e as tabelas do histórico. O que já foi aplicado
+está versionado em [`supabase/migrations/`](supabase/migrations/); os detalhes
+do modelo ficam em [docs/HISTORY.md](docs/HISTORY.md).
 
-```sql
-create table public.bot_state (
-  id smallint primary key default 1,
-  enabled boolean not null default true,
-  updated_at timestamptz not null default now(),
-  constraint bot_state_linha_unica check (id = 1)
-);
-
-alter table public.bot_state enable row level security;
-
--- Somente o backend acessa. Sem políticas, anon/authenticated não leem nada.
-grant select, update on public.bot_state to service_role;
-revoke all on public.bot_state from anon, authenticated;
-
-insert into public.bot_state (id, enabled) values (1, true)
-on conflict (id) do nothing;
-```
-
-RLS fica ligada **sem nenhuma política**: a tabela é inalcançável pela Data
-API. O backend usa a chave secreta, que ignora RLS por design. Por isso a
+RLS fica ligada **sem nenhuma política**: as tabelas são inalcançáveis pela
+Data API. O backend usa a chave secreta, que ignora RLS por design. Por isso a
 chave publicável (`anon` / `sb_publishable_`) não funciona aqui.
 
 ## Execução
@@ -194,7 +189,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-146 testes, sem chamadas de rede reais — a camada HTTP é simulada com
+206 testes, sem chamadas de rede reais — a camada HTTP é simulada com
 `httpx.MockTransport`, então a suíte roda offline e é determinística.
 
 ## Rotas
@@ -232,7 +227,10 @@ costuma ficar exposta em uma URL pública para receber o webhook.
   Finbox avisa em vez de responder que a fatura está vazia.
 - **Somente PDF**, até 10 MB.
 - **Uma allowlist única**, sem múltiplos usuários.
-- **Sem histórico de conversa**: cada mensagem é tratada isoladamente.
+- **Sem RAG ainda.** O modelo recebe o resumo da conversa e as últimas
+  mensagens; busca semântica sobre o histórico inteiro fica para depois.
+  Perguntas sobre uma transação específica que não esteja no resumo enviado
+  ao usuário ainda não têm resposta.
 - **Categorização vem do modelo** e pode variar entre execuções; os valores,
   não — esses são calculados em Python.
 

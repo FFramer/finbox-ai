@@ -16,7 +16,13 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from app.ai import AIError, MODELO_RESPOSTA, _completar
+from app.ai import (
+    AIError,
+    MODELO_RESPOSTA,
+    ConversationMessage,
+    _completar,
+    montar_mensagens,
+)
 
 CENTAVOS = Decimal("0.01")
 MAX_CATEGORIAS = 5
@@ -118,11 +124,15 @@ def _ler_transacoes(conteudo):
 
 async def analisar(client, texto_do_documento):
     """Extrai as transações do texto. Erros do provedor sobem como AIError."""
+    # Extracao e de tiro unico: o documento se basta, e historico aqui so
+    # aumentaria a chance de o modelo misturar faturas diferentes.
     conteudo = await _completar(
         client,
         MODELO_RESPOSTA,
-        PROMPT_EXTRACAO,
-        texto_do_documento,
+        montar_mensagens(
+            PROMPT_EXTRACAO,
+            [ConversationMessage('user', texto_do_documento)],
+        ),
         temperature=0.0,
     )
 

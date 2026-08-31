@@ -37,3 +37,34 @@ def test_o_cliente_http_e_o_mesmo_entre_requisicoes():
     assert primeiro is not None
     assert primeiro is segundo
     assert isinstance(primeiro, httpx.AsyncClient)
+
+
+def test_avisa_na_subida_quando_o_historico_cai_para_memoria(monkeypatch, capsys):
+    """Sem Supabase o historico evapora no restart. Descobrir isso pelo
+    sumico das mensagens e caro demais; o log de subida precisa dizer."""
+    monkeypatch.setattr(main, "SUPABASE_URL", "")
+    monkeypatch.setattr(main, "SUPABASE_KEY", "")
+
+    with TestClient(app):
+        pass
+
+    saida = capsys.readouterr().out.lower()
+    assert "memoria" in saida
+    assert "restart" in saida
+
+
+def test_com_supabase_configurado_o_log_confirma_a_persistencia(capsys):
+    with TestClient(app):
+        pass
+
+    assert "supabase" in capsys.readouterr().out.lower()
+
+
+def test_a_subida_varre_mensagens_orfas(monkeypatch, capsys):
+    monkeypatch.setattr(main, "SUPABASE_URL", "")
+    monkeypatch.setattr(main, "SUPABASE_KEY", "")
+
+    with TestClient(app):
+        pass
+
+    assert "varredura de orfas" in capsys.readouterr().out.lower()

@@ -98,3 +98,13 @@ def test_em_conversa_direta_o_autor_e_o_proprio_remetente(evento_real):
     }
 
     assert parse_event(evento_real).author_id == "5511999999999@s.whatsapp.net"
+
+
+def test_extrai_instancia_e_timestamp_do_provedor(evento_real):
+    evento_real["instance"] = "finbox"
+    evento_real["data"]["messageTimestamp"] = "1788134400"
+
+    resultado = parse_event(evento_real)
+
+    assert resultado.instance == "finbox"
+    assert resultado.occurred_at.isoformat() == "2026-08-31T00:00:00+00:00"

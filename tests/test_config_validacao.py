@@ -9,6 +9,9 @@ COMPLETA = {
     "EVOLUTION_API_URL": "https://evo.exemplo",
     "EVOLUTION_API_KEY": "chave",
     "EVOLUTION_INSTANCE": "finbox",
+    "OPENROUTER_API_KEY": "sk-or-teste",
+    "OPENROUTER_MODEL_GUARD": "modelo/guard",
+    "OPENROUTER_MODEL_ANSWER": "modelo/resposta",
     "WEBHOOK_SECRET": "segredo",
     "ADMIN_TOKEN": "token",
     "ALLOWED_LID": "123",
@@ -47,6 +50,18 @@ def test_telefone_sozinho_ja_satisfaz_a_whitelist():
     validar(dict(COMPLETA, ALLOWED_LID="", ALLOWED_PHONE="5511999999999"))
 
 
+def test_supabase_exige_url_e_chave_em_conjunto():
+    with pytest.raises(ConfigInvalida) as erro:
+        validar(dict(COMPLETA, SUPABASE_URL="https://db.exemplo"))
+
+    assert "SUPABASE_KEY" in str(erro.value)
+
+    with pytest.raises(ConfigInvalida) as erro:
+        validar(dict(COMPLETA, SUPABASE_KEY="sb_secret_teste"))
+
+    assert "SUPABASE_URL" in str(erro.value)
+
+
 def test_lista_todas_as_ausentes_de_uma_vez():
     with pytest.raises(ConfigInvalida) as erro:
         validar(dict(COMPLETA, EVOLUTION_API_KEY="", ADMIN_TOKEN=""))
@@ -62,3 +77,26 @@ def test_url_da_evolution_normaliza_barra_final():
     assert normalizar_url("https://evo.exemplo/") == "https://evo.exemplo"
     assert normalizar_url("https://evo.exemplo") == "https://evo.exemplo"
     assert normalizar_url(None) is None
+
+
+@pytest.mark.parametrize(
+    "faltando",
+    ["OPENROUTER_API_KEY", "OPENROUTER_MODEL_GUARD", "OPENROUTER_MODEL_ANSWER"],
+)
+def test_credenciais_da_ia_faltando_impedem_a_subida(faltando):
+    """Sem elas a aplicacao sobe e falha uma mensagem por vez, como
+    INDISPONIVEL, sem nada no log que aponte a configuracao."""
+    valores = dict(COMPLETA, **{faltando: ""})
+
+    with pytest.raises(ConfigInvalida) as erro:
+        validar(valores)
+
+    assert faltando in str(erro.value)
+
+
+def test_valores_atuais_expoe_tudo_que_a_validacao_exige():
+    """Uma obrigatoria fora de valores_atuais seria sempre reportada como
+    ausente, mesmo preenchida no .env."""
+    from app.config import OBRIGATORIAS, valores_atuais
+
+    assert set(OBRIGATORIAS) <= set(valores_atuais())

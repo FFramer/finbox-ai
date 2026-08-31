@@ -39,12 +39,17 @@ def test_receptor_sempre_confirma_o_recebimento_para_a_evolution():
     assert r.json()["received"] is True
 
 
-def test_receptor_imprime_o_payload_bruto_no_terminal(capsys):
-    TestClient(app).post("/webhook", json={"event": "messages.upsert", "x": 1}, headers=HEADERS)
+def test_receptor_registra_so_metadados_seguros_no_terminal(capsys):
+    TestClient(app).post(
+        "/webhook",
+        json={"event": "messages.upsert", "conteudo_secreto": "nao-logar"},
+        headers=HEADERS,
+    )
 
     saida = capsys.readouterr().out
-    assert "NOVO EVENTO EVOLUTION" in saida
+    assert "[webhook]" in saida
     assert "messages.upsert" in saida
+    assert "nao-logar" not in saida
 
 
 def test_receptor_devolve_400_em_corpo_nao_json_em_vez_de_quebrar():
@@ -52,6 +57,13 @@ def test_receptor_devolve_400_em_corpo_nao_json_em_vez_de_quebrar():
         "/webhook", content="isto nao e json", headers=HEADERS)
 
     assert r.status_code == 400
+
+
+def test_receptor_ignora_json_que_nao_e_objeto():
+    r = TestClient(app).post("/webhook", json=[], headers=HEADERS)
+
+    assert r.status_code == 200
+    assert r.json()["reason"] == "nao_e_mensagem"
 
 
 # --- registro -------------------------------------------------------------

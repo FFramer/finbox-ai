@@ -5,6 +5,7 @@ da documentação. Ver tests/fixtures/messages_upsert_grupo_fromme.json.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 MESSAGE_EVENT = "messages.upsert"
 GROUP_SUFFIX = "@g.us"
@@ -28,6 +29,24 @@ class ParsedEvent:
     push_name: str | None
     message_id: str | None = None
     documento: Documento | None = None
+    instance: str | None = None
+    occurred_at: datetime | None = None
+
+
+def _extract_occurred_at(value):
+    if value is None:
+        return None
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if timestamp >= 1_000_000_000_000:
+        timestamp /= 1000
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _extract_documento(message):
@@ -83,4 +102,6 @@ def parse_event(payload):
         push_name=data.get("pushName"),
         message_id=key.get("id"),
         documento=_extract_documento(data.get("message") or {}),
+        instance=payload.get("instance"),
+        occurred_at=_extract_occurred_at(data.get("messageTimestamp")),
     )

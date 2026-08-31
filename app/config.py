@@ -37,10 +37,36 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 EXPOSE_DOCS = os.getenv("EXPOSE_DOCS", "").lower() in ("1", "true", "sim")
 
+
+def _inteiro(nome, padrao):
+    try:
+        valor = int(os.getenv(nome, "") or padrao)
+    except ValueError:
+        return padrao
+    return valor if valor > 0 else padrao
+
+
+# Contexto de conversa. Contagem de mensagens e barata de raciocinar, mas
+# uma unica mensagem pode ser enorme (o resumo de uma fatura) -- por isso
+# o teto de caracteres tambem existe.
+HISTORY_WINDOW = _inteiro("HISTORY_WINDOW", 20)
+GUARD_WINDOW = _inteiro("GUARD_WINDOW", 6)
+SUMMARY_EVERY = _inteiro("SUMMARY_EVERY", 20)
+HISTORY_MAX_CHARS = _inteiro("HISTORY_MAX_CHARS", 12000)
+
+# Mensagem em processing por mais que isso so pode ser orfa de um
+# processo que morreu com a background task em voo.
+STUCK_AFTER_MINUTES = _inteiro("STUCK_AFTER_MINUTES", 15)
+
+# OPENROUTER_BASE_URL fica de fora: tem default. As outras três não têm
+# substituto — sem elas cada mensagem falha isolada, longe da causa.
 OBRIGATORIAS = (
     "EVOLUTION_API_URL",
     "EVOLUTION_API_KEY",
     "EVOLUTION_INSTANCE",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL_GUARD",
+    "OPENROUTER_MODEL_ANSWER",
     "WEBHOOK_SECRET",
     "ADMIN_TOKEN",
 )
@@ -57,6 +83,11 @@ def validar(valores):
     if not (valores.get("ALLOWED_PHONE") or valores.get("ALLOWED_LID") or "").strip():
         faltando.append("ALLOWED_PHONE ou ALLOWED_LID (ao menos um)")
 
+    supabase_url = (valores.get("SUPABASE_URL") or "").strip()
+    supabase_key = (valores.get("SUPABASE_KEY") or "").strip()
+    if bool(supabase_url) != bool(supabase_key):
+        faltando.append("SUPABASE_KEY" if supabase_url else "SUPABASE_URL")
+
     if faltando:
         raise ConfigInvalida(
             "Configuração incompleta no .env: " + ", ".join(faltando)
@@ -68,8 +99,13 @@ def valores_atuais():
         "EVOLUTION_API_URL": EVOLUTION_API_URL,
         "EVOLUTION_API_KEY": EVOLUTION_API_KEY,
         "EVOLUTION_INSTANCE": EVOLUTION_INSTANCE,
+        "OPENROUTER_API_KEY": OPENROUTER_API_KEY,
+        "OPENROUTER_MODEL_GUARD": OPENROUTER_MODEL_GUARD,
+        "OPENROUTER_MODEL_ANSWER": OPENROUTER_MODEL_ANSWER,
         "WEBHOOK_SECRET": WEBHOOK_SECRET,
         "ADMIN_TOKEN": ADMIN_TOKEN,
         "ALLOWED_PHONE": ALLOWED_PHONE,
         "ALLOWED_LID": ALLOWED_LID,
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_KEY": SUPABASE_KEY,
     }
