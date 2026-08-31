@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+
+.tools/
+qrcode-*.png
+
+# documentos financeiros reais
+*.pdf
+!tests/fixtures/*.pdf
+
+# artefatos locais
+.pytest_cache/

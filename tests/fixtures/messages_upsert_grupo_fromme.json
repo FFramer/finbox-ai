@@ -1,0 +1,27 @@
+{
+  "event": "messages.upsert",
+  "instance": "finbox",
+  "data": {
+    "key": {
+      "remoteJid": "120363400000000000@g.us",
+      "fromMe": true,
+      "id": "AAAAAAAAAAAAAAAAAAAA",
+      "participant": "100390000000000@lid",
+      "addressingMode": "lid"
+    },
+    "pushName": "Fulano",
+    "status": "SERVER_ACK",
+    "message": {
+      "conversation": "teste finbox"
+    },
+    "messageType": "conversation",
+    "messageTimestamp": 1788140566,
+    "instanceId": "<REDACTED>",
+    "source": "unknown"
+  },
+  "destination": "https://exemplo.invalid/webhook",
+  "date_time": "2026-08-30T22:42:46.813Z",
+  "sender": "5511900000000@s.whatsapp.net",
+  "server_url": "https://evolution.exemplo.com",
+  "apikey": "<REDACTED-INSTANCE-TOKEN>"
+}
