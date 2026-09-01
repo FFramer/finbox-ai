@@ -64,14 +64,6 @@ PROMPT_PERGUNTA = (
 )
 
 
-PROMPT_PERGUNTA += (
-    '\nNao inclua algarismos, valores monetarios, quantidades ou percentuais '
-    'na resposta livre. O resumo deterministico enviado junto exibira os '
-    'numeros. Responda apenas com observacoes qualitativas e referencias a '
-    'descricoes ou categorias presentes nos dados.'
-)
-
-
 @dataclass(frozen=True)
 class Transacao:
     data: str
