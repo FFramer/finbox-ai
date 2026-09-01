@@ -56,6 +56,32 @@ def test_texto_fica_none_quando_a_mensagem_nao_tem_texto(evento_real):
     assert parse_event(evento_real).text is None
 
 
+# --- documentos ----------------------------------------------------------
+
+def test_extrai_tamanho_de_documento_serializado_como_long(evento_real):
+    evento_real['data']['message'] = {
+        'documentMessage': {
+            'fileName': 'fatura.pdf',
+            'mimetype': 'application/pdf',
+            'fileLength': {'low': 1024, 'high': 0, 'unsigned': True},
+        }
+    }
+
+    assert parse_event(evento_real).documento.tamanho == 1024
+
+
+def test_documento_com_tamanho_objeto_desconhecido_nao_quebra(evento_real):
+    evento_real['data']['message'] = {
+        'documentMessage': {
+            'fileName': 'fatura.pdf',
+            'mimetype': 'application/pdf',
+            'fileLength': {'formato': 'inesperado'},
+        }
+    }
+
+    assert parse_event(evento_real).documento.tamanho is None
+
+
 # --- origem ---------------------------------------------------------------
 
 def test_identifica_mensagem_vinda_de_grupo(evento_real):

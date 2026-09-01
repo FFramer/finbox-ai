@@ -49,6 +49,30 @@ def _extract_occurred_at(value):
         return None
 
 
+def _extract_tamanho(value):
+    '''Converte fileLength simples ou o Long serializado pelo protobuf.'''
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, dict):
+        try:
+            low = int(value['low']) & 0xFFFFFFFF
+            high = int(value.get('high', 0)) & 0xFFFFFFFF
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        tamanho = (high << 32) | low
+        if not value.get('unsigned', False) and tamanho >= (1 << 63):
+            tamanho -= 1 << 64
+        return tamanho if tamanho >= 0 else None
+
+    try:
+        tamanho = int(value)
+    except (TypeError, ValueError):
+        return None
+    return tamanho if tamanho >= 0 else None
+
+
 def _extract_documento(message):
     """A Evolution descreve anexos em documentMessage."""
     doc = message.get("documentMessage")
@@ -61,8 +85,8 @@ def _extract_documento(message):
     return Documento(
         nome=doc.get("fileName"),
         mimetype=doc.get("mimetype"),
-        # fileLength chega como string na v2.
-        tamanho=int(tamanho) if tamanho is not None else None,
+        # A v2 pode enviar string, numero ou um Long do protobuf.
+        tamanho=_extract_tamanho(tamanho),
     )
 
 
