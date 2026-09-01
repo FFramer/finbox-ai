@@ -82,6 +82,30 @@ def test_documento_com_tamanho_objeto_desconhecido_nao_quebra(evento_real):
     assert parse_event(evento_real).documento.tamanho is None
 
 
+def test_caption_do_documento_vira_o_texto_da_mensagem(evento_real):
+    """A legenda e o que o usuario pediu; sem ela o historico grava content nulo."""
+    evento_real['data']['message'] = {
+        'documentMessage': {
+            'fileName': 'fatura.pdf',
+            'mimetype': 'application/pdf',
+            'caption': 'tem alguma cobranca duplicada?',
+        }
+    }
+
+    assert parse_event(evento_real).text == 'tem alguma cobranca duplicada?'
+
+
+def test_documento_sem_caption_continua_sem_texto(evento_real):
+    evento_real['data']['message'] = {
+        'documentMessage': {
+            'fileName': 'fatura.pdf',
+            'mimetype': 'application/pdf',
+        }
+    }
+
+    assert parse_event(evento_real).text is None
+
+
 # --- origem ---------------------------------------------------------------
 
 def test_identifica_mensagem_vinda_de_grupo(evento_real):

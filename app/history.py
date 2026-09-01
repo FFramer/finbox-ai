@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Protocol
 
 from app.commands import parse_command
@@ -87,6 +87,10 @@ class HistoryStore(Protocol):
         delivered: bool,
     ) -> MessageRef: ...
 
+    async def record_transactions(
+        self, ref: MessageRef, transacoes
+    ) -> int: ...
+
     async def recent_messages(
         self, conversation_id: int | str, limit: int = 20
     ) -> list[HistoryMessage]: ...
@@ -138,6 +142,35 @@ def document_metadata(event: ParsedEvent) -> dict:
     }
 
 
+def _iso_date(valor):
+    """A data vem do modelo: pode ser '2026-08-02', '02 AGO' ou vazia."""
+    try:
+        return date.fromisoformat((valor or "").strip()).isoformat()
+    except ValueError:
+        return None
+
+
+def transaction_rows(transacoes) -> list[dict]:
+    """Converte as transacoes extraidas em linhas prontas para o banco.
+
+    A validacao fica aqui, no Python, e nao no cast do Postgres: uma data
+    que o modelo inventou viraria erro de SQL e abortaria a gravacao da
+    fatura inteira. Perder a data de uma linha custa menos que perder 25.
+    """
+    return [
+        {
+            "occurred_on": _iso_date(transacao.data),
+            "description": transacao.descricao,
+            # Decimal nao serializa em JSON; str preserva a exatidao que
+            # float perderia no caminho ate o numeric do Postgres.
+            "amount": str(transacao.valor),
+            "category": transacao.categoria or "Outros",
+            "position": posicao,
+        }
+        for posicao, transacao in enumerate(transacoes, 1)
+    ]
+
+
 def identity_type(external_id: str | None) -> str:
     if not external_id:
         return "unknown"
@@ -166,6 +199,7 @@ class InMemoryHistory:
         self.conversations: dict[tuple[str, str, str], dict] = {}
         self.messages: dict[int, HistoryMessage] = {}
         self.summaries: dict[str, ConversationSummary] = {}
+        self.transactions: dict[int, list[dict]] = {}
         self._provider_ids: dict[tuple[int, str], int] = {}
         self._next_principal_id = 1
         self._next_identity_id = 1
@@ -304,6 +338,25 @@ class InMemoryHistory:
             if provider_message_id:
                 self._provider_ids[(conversation_id, provider_message_id)] = message_id
             return MessageRef(conversation_id, message_id, True)
+
+    async def record_transactions(self, ref: MessageRef, transacoes) -> int:
+        """Substitui os lancamentos do documento, nao acrescenta.
+
+        Reprocessar o mesmo evento tem que deixar a fatura igual, nao
+        dobrada -- a mesma idempotencia que record_inbound ja garante.
+        """
+        linhas = transaction_rows(transacoes)
+
+        async with self._lock:
+            self.transactions[int(ref.message_id)] = [
+                {**linha, "conversation_id": int(ref.conversation_id)}
+                for linha in linhas
+            ]
+
+        return len(linhas)
+
+    def transactions_for(self, message_id) -> list[dict]:
+        return list(self.transactions.get(int(message_id), []))
 
     async def recent_messages(
         self, conversation_id: int | str, limit: int = 20

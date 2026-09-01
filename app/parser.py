@@ -96,7 +96,14 @@ def _extract_text(message):
         return message["conversation"]
 
     extended = message.get("extendedTextMessage") or {}
-    return extended.get("text")
+    if extended.get("text"):
+        return extended["text"]
+
+    # A legenda do anexo e o pedido do usuario ("tem cobranca duplicada?").
+    # Sem ela o documento entraria no historico sem nenhum texto, e o que
+    # foi pedido se perderia.
+    documento = message.get("documentMessage") or {}
+    return documento.get("caption")
 
 
 def parse_event(payload):

@@ -269,3 +269,77 @@ async def test_varredura_nao_toca_em_mensagem_recente():
 
     assert reaped == 0
     assert history.messages[int(recente.message_id)].processing_status == "processing"
+
+
+# --- fase 1: persistencia dos lancamentos ---------------------------------
+
+def documento_event(message_id="MSG-DOC"):
+    return ParsedEvent(
+        **{
+            **event(message_id=message_id).__dict__,
+            "text": None,
+            "documento": Documento("fatura.pdf", "application/pdf", 26110),
+        }
+    )
+
+
+def _transacoes():
+    from app.analise import Transacao
+
+    return [
+        Transacao("2026-08-02", "SUPERMERCADO ZONA SUL", 186.42, "Mercado"),
+        Transacao("2026-08-03", "UBER *TRIP", 27.90, "Transporte"),
+    ]
+
+
+def test_mapeia_transacoes_para_linhas_do_banco():
+    from app.history import transaction_rows
+
+    linhas = transaction_rows(_transacoes())
+
+    assert linhas[0]["occurred_on"] == "2026-08-02"
+    assert linhas[0]["description"] == "SUPERMERCADO ZONA SUL"
+    assert linhas[0]["amount"] == "186.42"
+    assert linhas[0]["category"] == "Mercado"
+    assert [linha["position"] for linha in linhas] == [1, 2]
+
+
+def test_data_invalida_do_modelo_vira_nulo_em_vez_de_quebrar():
+    """O modelo devolve '02 AGO' ou vazio quando nao entende o layout."""
+    from app.analise import Transacao
+    from app.history import transaction_rows
+
+    linhas = transaction_rows([
+        Transacao("02 AGO", "PADARIA REAL", 28.50, "Alimentacao"),
+        Transacao("", "CAFE DO CENTRO", 24.00, "Alimentacao"),
+    ])
+
+    assert linhas[0]["occurred_on"] is None
+    assert linhas[1]["occurred_on"] is None
+    assert linhas[0]["description"] == "PADARIA REAL"
+
+
+@pytest.mark.asyncio
+async def test_grava_os_lancamentos_do_documento():
+    history = InMemoryHistory()
+    inbound = await history.record_inbound(documento_event())
+
+    total = await history.record_transactions(inbound, _transacoes())
+
+    assert total == 2
+    guardadas = history.transactions_for(inbound.message_id)
+    assert [t["description"] for t in guardadas] == [
+        "SUPERMERCADO ZONA SUL", "UBER *TRIP"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reprocessar_o_mesmo_documento_nao_duplica():
+    """Reenvio do mesmo evento nao pode dobrar a fatura no banco."""
+    history = InMemoryHistory()
+    inbound = await history.record_inbound(documento_event())
+
+    await history.record_transactions(inbound, _transacoes())
+    await history.record_transactions(inbound, _transacoes())
+
+    assert len(history.transactions_for(inbound.message_id)) == 2

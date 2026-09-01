@@ -221,7 +221,8 @@ def test_assunto_fora_do_dominio_e_recusado(monkeypatch):
 
     # A recusa acontece em background; o que importa e o que chega ao usuario.
     assert r.status_code == 200
-    assert "apenas sobre finanças" in enviados[0]["text"].lower()
+    assert 'fico focado nas suas finanças' in enviados[0]['text'].lower()
+    assert 'continuar analisando' in enviados[0]['text'].lower()
     app.dependency_overrides.clear()
 
 
@@ -254,18 +255,23 @@ def test_pergunta_financeira_responde_em_background(monkeypatch):
 
 # --- camada 4: documentos -------------------------------------------------
 
-def doc_msg(nome="fatura.pdf", mime="application/pdf", tamanho=1024):
+def doc_msg(nome="fatura.pdf", mime="application/pdf", tamanho=1024,
+            caption=None):
+    documento = {
+        "fileName": nome, "mimetype": mime,
+        # A v2 manda o Long do protobuf; a string cobre a outra forma.
+        "fileLength": str(tamanho),
+    }
+
+    if caption is not None:
+        documento["caption"] = caption
+
     return {
         "event": "messages.upsert",
         "instance": "finbox",
         "data": {
             "key": {"remoteJid": AUTORIZADO, "fromMe": False, "id": "MSG1"},
-            "message": {
-                "documentMessage": {
-                    "fileName": nome, "mimetype": mime,
-                    "fileLength": str(tamanho),
-                }
-            },
+            "message": {"documentMessage": documento},
             "messageType": "documentMessage",
         },
     }
@@ -381,4 +387,118 @@ def test_documento_nao_passa_pelo_guard_de_financas(monkeypatch):
     c.post("/webhook", json=doc_msg(), headers=HEADERS)
 
     assert chamou_guard == []
+    app.dependency_overrides.clear()
+
+
+def test_caption_do_pdf_e_respondido_junto_com_o_resumo(monkeypatch):
+    """A legenda e um pedido; o resumo fixo sozinho nao responde a ela."""
+    from app.analise import Transacao
+
+    c, enviados = cliente_com_documento(monkeypatch, transacoes=[
+        Transacao("2026-08-01", "Uber", 34.90, "Transporte"),
+        Transacao("2026-08-02", "Spotify", 21.90, "Assinaturas"),
+    ])
+
+    async def fake_responder(client, resultado, transacoes, pergunta):
+        return f"Sobre '{pergunta}': o Uber foi o maior gasto."
+
+    monkeypatch.setattr(main, "responder_sobre", fake_responder, raising=False)
+
+    c.post("/webhook", json=doc_msg(caption="qual foi o maior gasto?"),
+           headers=HEADERS)
+
+    texto = enviados[0]["text"]
+
+    assert "56,80" in texto, "o resumo determinístico continua saindo"
+    assert "o Uber foi o maior gasto" in texto
+    app.dependency_overrides.clear()
+
+
+def test_falha_na_pergunta_extra_nao_custa_o_resumo(monkeypatch):
+    """Um extra que falha nunca pode derrubar a analise que ja deu certo."""
+    from app.ai import AIError
+    from app.analise import Transacao
+
+    c, enviados = cliente_com_documento(monkeypatch, transacoes=[
+        Transacao("2026-08-01", "Uber", 34.90, "Transporte"),
+        Transacao("2026-08-02", "Spotify", 21.90, "Assinaturas"),
+    ])
+
+    async def fake_responder(client, resultado, transacoes, pergunta):
+        raise AIError("provedor fora do ar")
+
+    monkeypatch.setattr(main, "responder_sobre", fake_responder, raising=False)
+
+    c.post("/webhook", json=doc_msg(caption="qual foi o maior gasto?"),
+           headers=HEADERS)
+
+    assert enviados, "o resumo precisa chegar mesmo assim"
+    assert "56,80" in enviados[0]["text"]
+    app.dependency_overrides.clear()
+
+
+def test_pdf_sem_caption_nao_gasta_chamada_extra(monkeypatch):
+    from app.analise import Transacao
+
+    chamadas = []
+
+    c, enviados = cliente_com_documento(monkeypatch, transacoes=[
+        Transacao("2026-08-01", "Uber", 34.90, "Transporte"),
+    ])
+
+    async def fake_responder(client, resultado, transacoes, pergunta):
+        chamadas.append(pergunta)
+        return "nao deveria ter sido chamado"
+
+    monkeypatch.setattr(main, "responder_sobre", fake_responder, raising=False)
+
+    c.post("/webhook", json=doc_msg(), headers=HEADERS)
+
+    assert chamadas == []
+    app.dependency_overrides.clear()
+
+
+# --- fase 1: lancamentos vao para o banco ---------------------------------
+
+def _duas_transacoes():
+    from app.analise import Transacao
+
+    return [
+        Transacao("2026-08-01", "Uber", 34.90, "Transporte"),
+        Transacao("2026-08-02", "Spotify", 21.90, "Assinaturas"),
+    ]
+
+
+def test_lancamentos_do_pdf_sao_persistidos(monkeypatch):
+    """Sem isto os lancamentos morrem junto com a background task."""
+    from app.history import InMemoryHistory
+
+    history = InMemoryHistory()
+    app.dependency_overrides[main.get_history_store] = lambda: history
+
+    c, enviados = cliente_com_documento(monkeypatch, transacoes=_duas_transacoes())
+    c.post("/webhook", json=doc_msg(), headers=HEADERS)
+
+    [(_, linhas)] = history.transactions.items()
+
+    assert [linha["description"] for linha in linhas] == ["Uber", "Spotify"]
+    assert [linha["amount"] for linha in linhas] == ["34.90", "21.90"]
+    app.dependency_overrides.clear()
+
+
+def test_falha_ao_gravar_lancamentos_nao_custa_a_resposta(monkeypatch):
+    """O usuario ja esperou a analise; perde-la por causa do banco seria pior."""
+    from app.history import HistoryError, InMemoryHistory
+
+    class BancoQueFalha(InMemoryHistory):
+        async def record_transactions(self, ref, transacoes):
+            raise HistoryError("supabase fora do ar")
+
+    app.dependency_overrides[main.get_history_store] = lambda: BancoQueFalha()
+
+    c, enviados = cliente_com_documento(monkeypatch, transacoes=_duas_transacoes())
+    c.post("/webhook", json=doc_msg(), headers=HEADERS)
+
+    assert enviados, "o resumo precisa chegar mesmo assim"
+    assert "56,80" in enviados[0]["text"]
     app.dependency_overrides.clear()

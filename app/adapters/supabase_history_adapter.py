@@ -14,6 +14,7 @@ from app.history import (
     document_metadata,
     identity_type,
     message_kind,
+    transaction_rows,
 )
 from app.parser import ParsedEvent
 
@@ -105,6 +106,34 @@ class SupabaseHistory:
             message_id=row["message_id"],
             created=bool(row["created"]),
         )
+
+    async def record_transactions(self, ref: MessageRef, transacoes) -> int:
+        """Grava os lancamentos da fatura numa unica chamada.
+
+        As linhas vao prontas do Python (data ja validada, valor em texto
+        exato): o cast do Postgres nao pode ser o primeiro lugar a
+        descobrir que o modelo inventou uma data.
+        """
+        response = await self._request(
+            "POST",
+            "/rpc/record_document_transactions",
+            json={
+                "p_message_id": int(ref.message_id),
+                "p_transactions": transaction_rows(transacoes),
+            },
+        )
+
+        try:
+            total = response.json()
+        except ValueError as exc:
+            raise HistoryError(
+                "Supabase devolveu resposta invalida ao gravar lancamentos"
+            ) from exc
+
+        if isinstance(total, list):
+            total = total[0] if total else 0
+
+        return int(total or 0)
 
     async def mark_inbound(
         self, ref: MessageRef, status: str, reason: str | None = None

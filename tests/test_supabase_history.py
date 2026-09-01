@@ -366,3 +366,56 @@ async def test_varredura_de_orfas_usa_o_indice_de_pendentes():
         "ignored_reason": "orphaned",
     }
     assert reaped == 2
+
+
+@pytest.mark.asyncio
+async def test_lancamentos_vao_para_a_rpc_com_as_linhas_prontas():
+    captured = {}
+
+    def handler(request):
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.read())
+        return httpx.Response(200, json=2)
+
+    from app.analise import Transacao
+
+    transacoes = [
+        Transacao("2026-08-02", "SUPERMERCADO ZONA SUL", 186.42, "Mercado"),
+        Transacao("02 AGO", "PADARIA REAL", 28.50, "Alimentacao"),
+    ]
+
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        total = await SupabaseHistory(client).record_transactions(
+            MessageRef(conversation_id=10, message_id=20, created=True),
+            transacoes,
+        )
+
+    assert captured["path"].endswith("/rpc/record_document_transactions")
+    assert captured["body"]["p_message_id"] == 20
+    enviadas = captured["body"]["p_transactions"]
+    assert enviadas[0]["amount"] == "186.42"
+    assert enviadas[0]["occurred_on"] == "2026-08-02"
+    # data que o modelo inventou nao pode virar erro de cast no Postgres
+    assert enviadas[1]["occurred_on"] is None
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_falha_do_supabase_ao_gravar_lancamentos_vira_history_error():
+    def handler(request):
+        return httpx.Response(500, text="boom")
+
+    from app.analise import Transacao
+
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(HistoryError):
+            await SupabaseHistory(client).record_transactions(
+                MessageRef(conversation_id=10, message_id=20, created=True),
+                [Transacao("2026-08-02", "UBER", 27.90, "Transporte")],
+            )

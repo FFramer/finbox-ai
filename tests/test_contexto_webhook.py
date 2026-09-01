@@ -34,10 +34,11 @@ def cliente(monkeypatch):
     monkeypatch.setattr(authorization, "ALLOWED_GROUP_ID", "")
 
     history = InMemoryHistory()
-    visto = {"guard": [], "resposta": []}
+    visto = {"guard": [], "guard_resumo": [], "resposta": []}
 
     async def guard(ia, conversa, resumo=None):
         visto["guard"].append([(m.role, m.content) for m in conversa])
+        visto["guard_resumo"].append(resumo)
         return True
 
     async def responder(ia, conversa, resumo=None):
@@ -157,3 +158,4 @@ def test_o_resumo_guardado_chega_ao_modelo(cliente):
 
     _, resumo = visto["resposta"][1]
     assert resumo == "Ja falamos de fatura."
+    assert visto["guard_resumo"][1] == "Ja falamos de fatura."

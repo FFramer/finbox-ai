@@ -22,7 +22,7 @@ from app.adapters.evolution_adapter import (
 )
 from app.adapters.supabase_history_adapter import SupabaseHistory
 from app.ai import AIError, answer_financial_question, classify_financial_topic
-from app.analise import analisar, resumir, somar
+from app.analise import analisar, responder_sobre, resumir, somar
 from app.authorization import is_authorized
 from app.commands import Command, parse_command
 from app.documento import (
@@ -52,7 +52,8 @@ from app.parser import parse_event
 from app.state import get_state_store
 
 FORA_DO_DOMINIO = (
-    "O Finbox responde apenas sobre finanças e documentos financeiros."
+    'Eu fico focado nas suas finanças. Se quiser, posso continuar analisando '
+    'sua fatura, seus gastos ou seus investimentos.'
 )
 INDISPONIVEL = (
     "Não consegui processar agora. Tente de novo em instantes."
@@ -310,8 +311,35 @@ async def _processar_documento(ia, client, history, inbound, evento):
         await _mark_background(history, inbound, "failed", "unexpected_error")
         return
 
+    resultado = somar(transacoes)
+
+    # Os lancamentos so existem dentro desta background task: sem gravar,
+    # somem com ela e nenhuma pergunta futura alcanca essa fatura. Uma
+    # falha aqui fica no log e nao custa a resposta ja calculada.
+    try:
+        await history.record_transactions(inbound, transacoes)
+    except HistoryError as exc:
+        print(f"[history] falha ao gravar lancamentos: {exc}")
+
+    extra = None
+
+    # A legenda do anexo e um pedido ("tem cobranca duplicada?"), e o resumo
+    # de formato fixo nao tem onde responde-la. Segunda chamada, sobre os
+    # numeros que o Python ja calculou.
+    if evento.text and transacoes:
+        try:
+            extra = await responder_sobre(
+                ia, resultado, transacoes, evento.text
+            )
+        except Exception as exc:
+            # Um extra que falha nao pode custar a analise que ja deu certo.
+            # Fica no log em vez de sumir: o resumo sai do mesmo jeito.
+            print(f"[webhook] falha ao responder a legenda: {exc}")
+
     # Os números do resumo saem do Python, nunca do modelo.
-    await _responder(client, history, inbound, evento, resumir(somar(transacoes)))
+    await _responder(
+        client, history, inbound, evento, resumir(resultado, extra)
+    )
     await _mark_background(history, inbound, "completed")
 
 
@@ -329,9 +357,11 @@ async def _processar_com_ia(ia, client, history, inbound, evento):
     )
 
     try:
-        # O guard ve so a janela curta, sem resumo: o que ele precisa
-        # decidir e se a conversa e financeira, nao o que ela dizia.
-        if not await classify_financial_topic(ia, contexto.guard_messages):
+        # A janela curta resolve as referencias imediatas; o resumo preserva
+        # o assunto financeiro ativo quando ele comecou antes dessa janela.
+        if not await classify_financial_topic(
+            ia, contexto.guard_messages, contexto.summary
+        ):
             await _responder(client, history, inbound, evento, FORA_DO_DOMINIO)
             await _mark_background(history, inbound, "completed")
             return
