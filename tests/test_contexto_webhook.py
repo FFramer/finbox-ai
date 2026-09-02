@@ -36,7 +36,7 @@ def cliente(monkeypatch):
     history = InMemoryHistory()
     visto = {"resposta": []}
 
-    async def responder(ia, conversa, resumo=None):
+    async def responder(ia, conversa, resumo=None, dados=None):
         visto["resposta"].append(
             ([(m.role, m.content) for m in conversa], resumo)
         )

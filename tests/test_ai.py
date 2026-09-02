@@ -181,3 +181,18 @@ def test_prompt_de_resposta_assume_escopo_continuidade_e_limites():
     assert "lembrete" in texto, "precisa avisar que ainda nao cria lembretes"
     assert "continua" in texto, "precisa tratar mensagens curtas de continuacao"
     assert "invent" in texto, "precisa proibir valor sem fonte no contexto"
+
+
+async def test_bloco_de_dados_entra_rotulado_como_dado():
+    """Mesma blindagem do resumo: dado gravado nao pode virar instrucao."""
+    mensagens = await chamar(
+        answer_financial_question,
+        [ConversationMessage('user', 'quanto gastei de uber?')],
+        dados='02/08 | UBER *TRIP | R$ 27,90 | Transporte',
+    )
+
+    sistemas = [m['content'] for m in mensagens if m['role'] == 'system']
+
+    assert any('UBER *TRIP' in s for s in sistemas)
+    assert all(m['role'] != 'user' or 'UBER' not in m['content']
+               for m in mensagens[1:] if m['role'] == 'system')

@@ -422,3 +422,33 @@ def test_recusa_reescrita_tambem_sai_do_resumo():
 
     assert "fico focado" not in limpo
     assert "Total R$ 10,00." in limpo
+
+
+# --- fase 2: lancamentos da conversa inteira ------------------------------
+
+@pytest.mark.asyncio
+async def test_lista_os_lancamentos_de_toda_a_conversa():
+    """A fase 2 responde sobre a fatura; a 3 compara. As duas leem daqui."""
+    history = InMemoryHistory()
+    inbound = await history.record_inbound(documento_event("DOC-A"))
+    await history.record_transactions(inbound, _transacoes())
+
+    linhas = await history.transactions_for_conversation(inbound.conversation_id)
+
+    assert [l["description"] for l in linhas] == [
+        "SUPERMERCADO ZONA SUL", "UBER *TRIP"
+    ]
+    assert all(l["message_id"] == inbound.message_id for l in linhas), (
+        "sem message_id nao da para saber qual e a fatura mais recente"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lancamentos_de_outra_conversa_nao_vazam():
+    history = InMemoryHistory()
+    a = await history.record_inbound(documento_event("DOC-A"))
+    await history.record_transactions(a, _transacoes())
+
+    linhas = await history.transactions_for_conversation(999)
+
+    assert linhas == []

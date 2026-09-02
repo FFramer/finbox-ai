@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import authorization, main
+from app.parser import parse_event
 from app.main import app
 from tests.conftest import HEADERS, HEADERS_ADMIN
 from app.state import InMemoryBotState, get_state_store
@@ -178,7 +179,7 @@ def cliente_com_ia(monkeypatch, resposta="O CDI e ...", envio=None):
 
     chamadas = []
 
-    async def fake_answer(client, conversa, resumo=None):
+    async def fake_answer(client, conversa, resumo=None, dados=None):
         chamadas.append(conversa)
         return resposta
 
@@ -362,7 +363,7 @@ def test_documento_nao_passa_pelo_fluxo_de_conversa(monkeypatch):
 
     chamou_guard = []
 
-    async def resposta_espia(client, conversa, resumo=None):
+    async def resposta_espia(client, conversa, resumo=None, dados=None):
         chamou_guard.append(conversa)
         return "nao deveria"
 
@@ -503,9 +504,11 @@ def _cliente_de_texto(monkeypatch, resposta="resposta.", erro=None):
     app.dependency_overrides[get_state_store] = lambda: InMemoryBotState(True)
 
     chamadas = []
+    main._dados_vistos = []
 
-    async def responder(ia, conversa, resumo=None):
+    async def responder(ia, conversa, resumo=None, dados=None):
         chamadas.append([(m.role, m.content) for m in conversa])
+        main._dados_vistos.append(dados)
         if erro is not None:
             raise erro
         return resposta
@@ -565,3 +568,52 @@ def test_falha_do_provedor_vira_indisponibilidade_e_nunca_recusa(monkeypatch):
 
 def test_recusa_fixa_de_dominio_nao_existe_mais_no_fluxo(monkeypatch):
     assert not hasattr(main, "FORA_DO_DOMINIO")
+
+
+
+
+# --- fases 2 e 3: lancamentos e comparacao no contexto --------------------
+
+def test_lancamentos_gravados_chegam_ao_modelo(monkeypatch):
+    """Sem o bloco, 'quanto gastei de Uber' nao tem como ser respondido."""
+    import asyncio
+
+    from app.analise import Transacao
+    from app.history import InMemoryHistory
+    from app.parser import Documento, ParsedEvent
+
+    history = InMemoryHistory()
+
+    async def semear():
+        base = parse_event(msg("fatura"))
+        doc = ParsedEvent(
+            **{
+                **base.__dict__,
+                "message_id": "DOC-1",
+                "text": None,
+                "documento": Documento("fatura.pdf", "application/pdf", 100),
+            }
+        )
+        inbound = await history.record_inbound(doc)
+        await history.mark_inbound(inbound, "completed")
+        await history.record_transactions(inbound, [
+            Transacao("2026-07-05", "POSTO IPIRANGA", 200.00, "Transporte"),
+            Transacao("2026-08-03", "UBER *TRIP", 27.90, "Transporte"),
+        ])
+
+    asyncio.run(semear())
+
+    c, enviados, _ = _cliente_de_texto(monkeypatch)
+    app.dependency_overrides[main.get_history_store] = lambda: history
+
+    c.post("/webhook", json=msg("quanto gastei de uber?"), headers=HEADERS)
+
+    bloco = main._dados_vistos[-1]
+
+    assert bloco is not None, "o bloco de lancamentos precisa chegar ao modelo"
+    assert "UBER *TRIP" in bloco
+    assert "R$ 27,90" in bloco
+    # fase 3: totais por mes, somados em Python
+    assert "2026-07" in bloco and "2026-08" in bloco
+    assert "R$ 200,00" in bloco
+    app.dependency_overrides.clear()

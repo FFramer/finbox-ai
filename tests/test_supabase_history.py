@@ -463,3 +463,31 @@ async def test_eligible_after_tambem_exclui_a_recusa_legada():
 
     for recusa in RECUSAS_LEGADAS:
         assert f"neq.{recusa}" in capturado["content"], recusa
+
+
+@pytest.mark.asyncio
+async def test_lancamentos_da_conversa_vem_do_banco_ordenados():
+    capturado = {}
+
+    def handler(request):
+        capturado["path"] = request.url.path
+        capturado["params"] = dict(request.url.params)
+        return httpx.Response(200, json=[
+            {"message_id": 67, "position": 2, "occurred_on": "2026-08-03",
+             "description": "UBER *TRIP", "amount": "27.90",
+             "category": "Transporte"},
+            {"message_id": 67, "position": 1, "occurred_on": "2026-08-02",
+             "description": "SUPERMERCADO", "amount": "186.42",
+             "category": "Mercado"},
+        ])
+
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        linhas = await SupabaseHistory(client).transactions_for_conversation(9)
+
+    assert capturado["path"].endswith("/transactions")
+    assert capturado["params"]["conversation_id"] == "eq.9"
+    # desc + limit pega as mais recentes; a ordem util e cronologica.
+    assert [l["position"] for l in linhas] == [1, 2]

@@ -26,6 +26,10 @@ def _instante(valor):
     return datetime.fromisoformat(valor.replace("Z", "+00:00"))
 
 
+CAMPOS_DO_LANCAMENTO = (
+    "message_id,position,occurred_on,description,amount,category"
+)
+
 CAMPOS_DA_MENSAGEM = (
     "id,conversation_id,direction,role,kind,content,"
     "processing_status,delivery_status,provider_message_id,"
@@ -140,6 +144,38 @@ class SupabaseHistory:
             total = total[0] if total else 0
 
         return int(total or 0)
+
+    async def transactions_for_conversation(
+        self, conversation_id, limit: int = 200
+    ) -> list[dict]:
+        if limit <= 0:
+            return []
+
+        response = await self._request(
+            "GET",
+            "/transactions",
+            params=[
+                ("conversation_id", f"eq.{conversation_id}"),
+                ("select", CAMPOS_DO_LANCAMENTO),
+                # desc + limit pega os mais recentes; a ordem util depois e
+                # a cronologica, entao invertemos aqui.
+                ("order", "message_id.desc,position.desc"),
+                ("limit", str(limit)),
+            ],
+        )
+
+        try:
+            linhas = response.json()
+        except ValueError as exc:
+            raise HistoryError(
+                "Supabase devolveu lancamentos em formato invalido"
+            ) from exc
+
+        if not isinstance(linhas, list):
+            raise HistoryError("Supabase nao devolveu uma lista de lancamentos")
+
+        linhas.reverse()
+        return linhas
 
     async def mark_inbound(
         self, ref: MessageRef, status: str, reason: str | None = None

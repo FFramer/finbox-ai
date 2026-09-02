@@ -145,6 +145,10 @@ class HistoryStore(Protocol):
         self, ref: MessageRef, transacoes
     ) -> int: ...
 
+    async def transactions_for_conversation(
+        self, conversation_id: int | str, limit: int = 200
+    ) -> list[dict]: ...
+
     async def recent_messages(
         self, conversation_id: int | str, limit: int = 20
     ) -> list[HistoryMessage]: ...
@@ -403,7 +407,11 @@ class InMemoryHistory:
 
         async with self._lock:
             self.transactions[int(ref.message_id)] = [
-                {**linha, "conversation_id": int(ref.conversation_id)}
+                {
+                    **linha,
+                    "conversation_id": int(ref.conversation_id),
+                    "message_id": int(ref.message_id),
+                }
                 for linha in linhas
             ]
 
@@ -411,6 +419,23 @@ class InMemoryHistory:
 
     def transactions_for(self, message_id) -> list[dict]:
         return list(self.transactions.get(int(message_id), []))
+
+    async def transactions_for_conversation(
+        self, conversation_id, limit: int = 200
+    ) -> list[dict]:
+        async with self._lock:
+            linhas = [
+                linha
+                for linhas_da_mensagem in self.transactions.values()
+                for linha in linhas_da_mensagem
+                if linha["conversation_id"] == int(conversation_id)
+            ]
+
+        linhas.sort(key=lambda l: (l["message_id"], l["position"]))
+
+        # O corte tira as mais antigas: a fatura recente e a que o usuario
+        # esta olhando.
+        return linhas[-limit:] if limit > 0 else []
 
     async def recent_messages(
         self, conversation_id: int | str, limit: int = 20

@@ -242,7 +242,7 @@ async def responder_sobre(client, resultado, transacoes, pergunta):
     return resposta
 
 
-def _moeda(valor):
+def moeda(valor):
     inteiro, _, centavos = f"{valor:.2f}".partition(".")
     milhar = f"{int(inteiro):,}".replace(",", ".")
 
@@ -264,20 +264,20 @@ def resumir(resultado, extra=None):
     linhas = [
         "Documento analisado",
         "",
-        f"Total: {_moeda(resultado.total)}",
+        f"Total: {moeda(resultado.total)}",
         f"Transações: {resultado.quantidade}",
     ]
 
     if resultado.por_categoria:
         linhas += ["", "Principais categorias:"]
         for categoria, valor in resultado.por_categoria[:MAX_CATEGORIAS]:
-            linhas.append(f"- {categoria}: {_moeda(valor)}")
+            linhas.append(f"- {categoria}: {moeda(valor)}")
 
     if resultado.maior:
         linhas += [
             "",
             "Maior compra:",
-            f"- {_moeda(resultado.maior.valor)} - {resultado.maior.descricao}",
+            f"- {moeda(resultado.maior.valor)} - {resultado.maior.descricao}",
         ]
 
     if extra and extra.strip():
@@ -288,6 +288,7 @@ def resumir(resultado, extra=None):
 
 __all__ = [
     "Transacao",
+    "moeda",
     "Resultado",
     "analisar",
     "responder_sobre",

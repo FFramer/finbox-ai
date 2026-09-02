@@ -20,6 +20,7 @@ from app.config import (
     SUMMARY_EVERY,
 )
 from app.history import HistoryError, normalizar_resumo_legado
+from app.lancamentos import bloco_de_dados
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class ContextBundle:
     messages: list[ConversationMessage]
     summary: str | None
     degraded: bool
+    dados: str | None = None
 
 
 class ConversationMemory:
@@ -52,6 +54,7 @@ class ConversationMemory:
         responder, respondemos sem memoria em vez de derrubar a mensagem.
         """
         resumo = None
+        dados = None
         degradado = False
 
         try:
@@ -74,6 +77,18 @@ class ConversationMemory:
             except HistoryError as exc:
                 print(f"[memory] resumo indisponivel: {exc}")
 
+            # Os lancamentos gravados sao o que permite responder sobre uma
+            # linha especifica e comparar meses. Best-effort como o resto:
+            # sem eles a conversa segue, so nao alcanca esse detalhe.
+            try:
+                dados = bloco_de_dados(
+                    await self.history.transactions_for_conversation(
+                        conversation_id
+                    )
+                )
+            except HistoryError as exc:
+                print(f"[memory] lancamentos indisponiveis: {exc}")
+
         mensagens = [
             ConversationMessage(m.role, m.content or "") for m in brutas
         ]
@@ -87,7 +102,7 @@ class ConversationMemory:
 
         mensagens = self._cortar(mensagens)
 
-        return ContextBundle(mensagens, resumo, degradado)
+        return ContextBundle(mensagens, resumo, degradado, dados)
 
     def _cortar(self, mensagens):
         """Teto rigido por caracteres: a contagem de mensagens nao protege

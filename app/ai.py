@@ -99,7 +99,7 @@ def _headers():
     }
 
 
-def montar_mensagens(sistema, conversa, resumo=None):
+def montar_mensagens(sistema, conversa, resumo=None, dados=None):
     """Monta o payload do modelo.
 
     O prompt de sistema nasce aqui e so aqui: a conversa recebida e
@@ -112,6 +112,9 @@ def montar_mensagens(sistema, conversa, resumo=None):
         mensagens.append(
             {"role": "system", "content": PREFIXO_RESUMO + resumo.strip()}
         )
+
+    if dados and dados.strip():
+        mensagens.append({"role": "system", "content": dados.strip()})
 
     for item in conversa:
         if item.role in ("user", "assistant") and (item.content or "").strip():
@@ -152,12 +155,12 @@ async def _completar(client, modelo, mensagens, temperature=0.2):
         raise AIError(f"Resposta inesperada do OpenRouter: {exc}") from exc
 
 
-async def answer_financial_question(client, conversa, resumo=None):
+async def answer_financial_question(client, conversa, resumo=None, dados=None):
     """Gera a resposta financeira. Erros sobem para quem chamou decidir."""
     return await _completar(
         client,
         MODELO_RESPOSTA,
-        montar_mensagens(PROMPT_RESPOSTA, conversa, resumo),
+        montar_mensagens(PROMPT_RESPOSTA, conversa, resumo, dados),
         temperature=0.4,
     )
 

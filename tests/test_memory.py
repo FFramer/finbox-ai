@@ -243,3 +243,60 @@ async def test_resumo_anterior_vai_limpo_para_a_atualizacao_rolling(monkeypatch)
     assert "anterior" in visto, "a atualizacao rolling precisa ter rodado"
     assert RECUSA_LEGADA not in visto["anterior"]
     assert "Total R$ 100,00." in visto["anterior"]
+
+
+async def test_contexto_traz_o_bloco_de_lancamentos():
+    """O docstring do modulo ja previa: dado novo entra como bloco aqui."""
+    from app.history import InMemoryHistory
+    from app.parser import Documento, ParsedEvent
+    from app.analise import Transacao
+
+    history = InMemoryHistory()
+    doc = ParsedEvent(
+        **{
+            **event("MSG-DOC").__dict__,
+            "text": None,
+            "documento": Documento("fatura.pdf", "application/pdf", 100),
+        }
+    )
+    inbound = await history.record_inbound(doc)
+    await history.mark_inbound(inbound, "completed")
+    await history.record_transactions(inbound, [
+        Transacao("2026-08-03", "UBER *TRIP", 27.90, "Transporte"),
+    ])
+
+    contexto = await ConversationMemory(history).build_context(
+        inbound.conversation_id, inbound.message_id, None
+    )
+
+    assert "UBER *TRIP" in contexto.dados
+    assert "2026-08" in contexto.dados
+
+
+async def test_conversa_sem_lancamentos_nao_ganha_bloco():
+    history, inbound = await conversa(trocas=1)
+
+    contexto = await ConversationMemory(history).build_context(
+        inbound.conversation_id, inbound.message_id, "e agora?"
+    )
+
+    assert contexto.dados is None
+
+
+async def test_falha_ao_ler_lancamentos_nao_derruba_a_resposta():
+    """Leitura e best-effort, como a janela e o resumo."""
+    from app.history import HistoryError
+
+    history, inbound = await conversa(trocas=1)
+
+    async def explode(*a, **k):
+        raise HistoryError("supabase fora do ar")
+
+    history.transactions_for_conversation = explode
+
+    contexto = await ConversationMemory(history).build_context(
+        inbound.conversation_id, inbound.message_id, "e agora?"
+    )
+
+    assert contexto.dados is None
+    assert contexto.messages, "a conversa continua respondendo sem os dados"

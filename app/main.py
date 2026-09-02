@@ -358,7 +358,7 @@ async def _processar_com_ia(ia, client, history, inbound, evento):
 
     try:
         resposta = await answer_financial_question(
-            ia, contexto.messages, contexto.summary
+            ia, contexto.messages, contexto.summary, contexto.dados
         )
     except AIError as exc:
         # Indisponibilidade, nunca recusa de assunto: dizer "fora do
