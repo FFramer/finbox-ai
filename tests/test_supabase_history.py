@@ -419,3 +419,47 @@ async def test_falha_do_supabase_ao_gravar_lancamentos_vira_history_error():
                 MessageRef(conversation_id=10, message_id=20, created=True),
                 [Transacao("2026-08-02", "UBER", 27.90, "Transporte")],
             )
+
+
+# --- fase 0: recusa legada excluida no banco, antes do LIMIT --------------
+
+def _captura_params():
+    capturado = {}
+
+    def handler(request):
+        capturado["content"] = request.url.params.get_list("content")
+        capturado["limit"] = request.url.params.get("limit")
+        return httpx.Response(200, json=[])
+
+    return capturado, httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_recent_eligible_exclui_a_recusa_legada_no_banco():
+    """Filtrar depois do LIMIT deixaria recusas ocupando vaga da janela."""
+    from app.history import RECUSAS_LEGADAS
+
+    capturado, transport = _captura_params()
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1", transport=transport
+    ) as client:
+        await SupabaseHistory(client).recent_eligible(9, up_to_id=70, limit=20)
+
+    for recusa in RECUSAS_LEGADAS:
+        assert f"neq.{recusa}" in capturado["content"], recusa
+    assert capturado["limit"] == "20", "a janela util nao pode encolher"
+
+
+@pytest.mark.asyncio
+async def test_eligible_after_tambem_exclui_a_recusa_legada():
+    """Sem isto a recusa entraria no proximo resumo rolling."""
+    from app.history import RECUSAS_LEGADAS
+
+    capturado, transport = _captura_params()
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1", transport=transport
+    ) as client:
+        await SupabaseHistory(client).eligible_after(9, after_id=10, limit=21)
+
+    for recusa in RECUSAS_LEGADAS:
+        assert f"neq.{recusa}" in capturado["content"], recusa

@@ -21,7 +21,7 @@ from app.adapters.evolution_adapter import (
     set_webhook,
 )
 from app.adapters.supabase_history_adapter import SupabaseHistory
-from app.ai import AIError, answer_financial_question, classify_financial_topic
+from app.ai import AIError, answer_financial_question
 from app.analise import analisar, responder_sobre, resumir, somar
 from app.authorization import is_authorized
 from app.commands import Command, parse_command
@@ -51,10 +51,6 @@ from app.memory import ConversationMemory
 from app.parser import parse_event
 from app.state import get_state_store
 
-FORA_DO_DOMINIO = (
-    'Eu fico focado nas suas finanças. Se quiser, posso continuar analisando '
-    'sua fatura, seus gastos ou seus investimentos.'
-)
 INDISPONIVEL = (
     "Não consegui processar agora. Tente de novo em instantes."
 )
@@ -344,7 +340,11 @@ async def _processar_documento(ia, client, history, inbound, evento):
 
 
 async def _processar_com_ia(ia, client, history, inbound, evento):
-    """Classifica e responde fora do ciclo da requisição.
+    """Responde fora do ciclo da requisição.
+
+    Uma unica chamada ao modelo, com a janela inteira e o resumo. Nao ha
+    classificador antes: quem decidia o escopo via menos contexto do que
+    quem responde, e transformava blip de rede em recusa de assunto.
 
     Roda após o 200 já ter sido devolvido, então nada aqui pode levantar:
     uma exceção solta aqui some sem deixar rastro no fluxo HTTP.
@@ -357,20 +357,14 @@ async def _processar_com_ia(ia, client, history, inbound, evento):
     )
 
     try:
-        # A janela curta resolve as referencias imediatas; o resumo preserva
-        # o assunto financeiro ativo quando ele comecou antes dessa janela.
-        if not await classify_financial_topic(
-            ia, contexto.guard_messages, contexto.summary
-        ):
-            await _responder(client, history, inbound, evento, FORA_DO_DOMINIO)
-            await _mark_background(history, inbound, "completed")
-            return
-
         resposta = await answer_financial_question(
             ia, contexto.messages, contexto.summary
         )
     except AIError as exc:
-        print(f"[webhook] falha na IA: {exc}")
+        # Indisponibilidade, nunca recusa de assunto: dizer "fora do
+        # escopo" quando a cota acabou mente para o usuario e apaga o
+        # rastro do problema real.
+        print(f"[webhook] IA indisponivel: {exc}")
         await _responder(client, history, inbound, evento, INDISPONIVEL)
         await _mark_background(history, inbound, "completed")
         return

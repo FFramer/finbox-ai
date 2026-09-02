@@ -10,7 +10,6 @@ COMPLETA = {
     "EVOLUTION_API_KEY": "chave",
     "EVOLUTION_INSTANCE": "finbox",
     "OPENROUTER_API_KEY": "sk-or-teste",
-    "OPENROUTER_MODEL_GUARD": "modelo/guard",
     "OPENROUTER_MODEL_ANSWER": "modelo/resposta",
     "WEBHOOK_SECRET": "segredo",
     "ADMIN_TOKEN": "token",
@@ -81,7 +80,7 @@ def test_url_da_evolution_normaliza_barra_final():
 
 @pytest.mark.parametrize(
     "faltando",
-    ["OPENROUTER_API_KEY", "OPENROUTER_MODEL_GUARD", "OPENROUTER_MODEL_ANSWER"],
+    ["OPENROUTER_API_KEY", "OPENROUTER_MODEL_ANSWER"],
 )
 def test_credenciais_da_ia_faltando_impedem_a_subida(faltando):
     """Sem elas a aplicacao sobe e falha uma mensagem por vez, como
@@ -100,3 +99,22 @@ def test_valores_atuais_expoe_tudo_que_a_validacao_exige():
     from app.config import OBRIGATORIAS, valores_atuais
 
     assert set(OBRIGATORIAS) <= set(valores_atuais())
+
+
+def test_configuracao_do_guard_foi_removida():
+    """Sem classificador nao ha consumidor legitimo dessas variaveis."""
+    from app import config
+
+    assert not hasattr(config, "OPENROUTER_MODEL_GUARD")
+    assert not hasattr(config, "GUARD_WINDOW")
+    assert "OPENROUTER_MODEL_GUARD" not in config.OBRIGATORIAS
+    assert "OPENROUTER_MODEL_GUARD" not in config.valores_atuais()
+
+
+def test_env_example_nao_oferece_mais_as_variaveis_do_guard():
+    import pathlib as _p
+
+    texto = _p.Path(".env.example").read_text(encoding="utf-8")
+
+    assert "OPENROUTER_MODEL_GUARD" not in texto
+    assert "GUARD_WINDOW" not in texto

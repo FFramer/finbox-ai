@@ -11,6 +11,7 @@ from app.history import (
     HistoryError,
     HistoryMessage,
     MessageRef,
+    RECUSAS_LEGADAS,
     document_metadata,
     identity_type,
     message_kind,
@@ -39,6 +40,11 @@ FILTRO_ELEGIVEL = (
     ("kind", "neq.command"),
     ("content", "not.is.null"),
     ("content", "neq."),
+    # As recusas fixas do guard antigo saem aqui, junto com os demais
+    # filtros, pelo mesmo motivo deles: descartadas depois da consulta, elas
+    # ocupariam vagas do LIMIT e empurrariam mensagem util para fora da
+    # janela. Sao duas porque o texto foi reescrito uma vez.
+    *(("content", f"neq.{recusa}") for recusa in RECUSAS_LEGADAS),
     (
         "or",
         "(and(direction.eq.inbound,"

@@ -23,7 +23,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = normalizar_url(
     os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 )
-OPENROUTER_MODEL_GUARD = os.getenv("OPENROUTER_MODEL_GUARD")
 OPENROUTER_MODEL_ANSWER = os.getenv("OPENROUTER_MODEL_ANSWER")
 EVOLUTION_API_URL = normalizar_url(os.getenv("EVOLUTION_API_URL"))
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
@@ -48,9 +47,9 @@ def _inteiro(nome, padrao):
 
 # Contexto de conversa. Contagem de mensagens e barata de raciocinar, mas
 # uma unica mensagem pode ser enorme (o resumo de uma fatura) -- por isso
-# o teto de caracteres tambem existe.
+# o teto de caracteres tambem existe. A janela vale para a unica chamada
+# que responde: nao existe mais janela reduzida de classificador.
 HISTORY_WINDOW = _inteiro("HISTORY_WINDOW", 20)
-GUARD_WINDOW = _inteiro("GUARD_WINDOW", 6)
 SUMMARY_EVERY = _inteiro("SUMMARY_EVERY", 20)
 HISTORY_MAX_CHARS = _inteiro("HISTORY_MAX_CHARS", 12000)
 
@@ -65,7 +64,6 @@ OBRIGATORIAS = (
     "EVOLUTION_API_KEY",
     "EVOLUTION_INSTANCE",
     "OPENROUTER_API_KEY",
-    "OPENROUTER_MODEL_GUARD",
     "OPENROUTER_MODEL_ANSWER",
     "WEBHOOK_SECRET",
     "ADMIN_TOKEN",
@@ -100,7 +98,6 @@ def valores_atuais():
         "EVOLUTION_API_KEY": EVOLUTION_API_KEY,
         "EVOLUTION_INSTANCE": EVOLUTION_INSTANCE,
         "OPENROUTER_API_KEY": OPENROUTER_API_KEY,
-        "OPENROUTER_MODEL_GUARD": OPENROUTER_MODEL_GUARD,
         "OPENROUTER_MODEL_ANSWER": OPENROUTER_MODEL_ANSWER,
         "WEBHOOK_SECRET": WEBHOOK_SECRET,
         "ADMIN_TOKEN": ADMIN_TOKEN,

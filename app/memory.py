@@ -15,18 +15,16 @@ from dataclasses import dataclass
 from app import ai
 from app.ai import AIError, ConversationMessage
 from app.config import (
-    GUARD_WINDOW,
     HISTORY_MAX_CHARS,
     HISTORY_WINDOW,
     SUMMARY_EVERY,
 )
-from app.history import HistoryError
+from app.history import HistoryError, normalizar_resumo_legado
 
 
 @dataclass(frozen=True)
 class ContextBundle:
     messages: list[ConversationMessage]
-    guard_messages: list[ConversationMessage]
     summary: str | None
     degraded: bool
 
@@ -37,13 +35,11 @@ class ConversationMemory:
         history,
         *,
         window: int = HISTORY_WINDOW,
-        guard_window: int = GUARD_WINDOW,
         summary_every: int = SUMMARY_EVERY,
         max_chars: int = HISTORY_MAX_CHARS,
     ):
         self.history = history
         self.window = window
-        self.guard_window = guard_window
         self.summary_every = summary_every
         self.max_chars = max_chars
 
@@ -70,7 +66,11 @@ class ConversationMemory:
         else:
             try:
                 atual = await self.history.conversation_summary(conversation_id)
-                resumo = atual.summary if atual else None
+                # Resumo antigo pode carregar a recusa fixa do guard. O
+                # banco nao muda: limpamos na leitura, aqui e na rolling.
+                resumo = (
+                    normalizar_resumo_legado(atual.summary) if atual else None
+                )
             except HistoryError as exc:
                 print(f"[memory] resumo indisponivel: {exc}")
 
@@ -86,9 +86,8 @@ class ConversationMemory:
             mensagens.append(ConversationMessage("user", current_text))
 
         mensagens = self._cortar(mensagens)
-        guard = mensagens[-self.guard_window:] if self.guard_window > 0 else []
 
-        return ContextBundle(mensagens, guard, resumo, degradado)
+        return ContextBundle(mensagens, resumo, degradado)
 
     def _cortar(self, mensagens):
         """Teto rigido por caracteres: a contagem de mensagens nao protege
@@ -126,7 +125,9 @@ class ConversationMemory:
 
         try:
             texto = await ai.summarize_conversation(
-                ia, atual.summary if atual else None, conversa
+                ia,
+                normalizar_resumo_legado(atual.summary) if atual else None,
+                conversa,
             )
         except AIError as exc:
             print(f"[memory] resumo nao gerado, mantendo o anterior: {exc}")

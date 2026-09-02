@@ -47,7 +47,7 @@ async def conversa(trocas=1, texto="Quanto gastei?"):
 
 
 def memoria(history, **kwargs):
-    padrao = dict(window=20, guard_window=2, summary_every=2, max_chars=10000)
+    padrao = dict(window=20, summary_every=2, max_chars=10000)
     return ConversationMemory(history, **{**padrao, **kwargs})
 
 
@@ -100,21 +100,6 @@ async def test_teto_de_caracteres_descarta_as_mais_antigas():
 
     assert sum(len(m.content) for m in bundle.messages) <= 30
     assert bundle.messages[-1].content == "e agora?"
-
-
-@pytest.mark.asyncio
-async def test_guard_recebe_so_as_ultimas_trocas():
-    history, _ = await conversa(trocas=3)
-    atual = await history.record_inbound(event("MSG-ATUAL", "e agora?"))
-    await history.mark_inbound(atual, "processing")
-
-    bundle = await memoria(history, guard_window=2).build_context(
-        atual.conversation_id, atual.message_id, "e agora?"
-    )
-
-    assert len(bundle.guard_messages) == 2
-    assert bundle.guard_messages[-1].content == "e agora?"
-    assert len(bundle.messages) > 2
 
 
 @pytest.mark.asyncio
@@ -197,3 +182,64 @@ async def test_falha_da_ia_mantem_o_resumo_anterior(monkeypatch):
 
     assert aplicado is False
     assert await history.conversation_summary(ultimo.conversation_id) is None
+
+
+# --- fase 0: sem guard, resumo legado normalizado -------------------------
+
+def test_context_bundle_nao_expoe_mais_janela_de_guard():
+    """Sem classificador separado, janela reduzida deixa de existir."""
+    from app.memory import ContextBundle
+
+    assert "guard_messages" not in ContextBundle.__dataclass_fields__
+
+
+async def _com_resumo_contaminado(trocas=1):
+    from app.history import RECUSA_LEGADA
+
+    history, inbound = await conversa(trocas=trocas)
+    await history.save_summary(
+        inbound.conversation_id,
+        summary=f"Falamos da fatura. {RECUSA_LEGADA} Total R$ 100,00.",
+        covers_through_message_id=inbound.message_id,
+        covered_message_count=1,
+        model="modelo",
+        prompt_version="v1",
+        expected_previous_message_id=None,
+    )
+    return history, inbound
+
+
+async def test_resumo_legado_chega_limpo_ao_prompt_de_resposta():
+    from app.history import RECUSA_LEGADA
+
+    history, inbound = await _com_resumo_contaminado()
+    contexto = await ConversationMemory(history).build_context(
+        inbound.conversation_id, inbound.message_id, "e agora?"
+    )
+
+    assert RECUSA_LEGADA not in contexto.summary
+    assert "Total R$ 100,00." in contexto.summary
+
+
+async def test_resumo_anterior_vai_limpo_para_a_atualizacao_rolling(monkeypatch):
+    """Senao a recusa e reciclada para dentro do proximo resumo."""
+    from app.history import RECUSA_LEGADA
+
+    history, inbound = await _com_resumo_contaminado()
+    for i in range(3):
+        await troca(history, f"extra-{i}")
+
+    visto = {}
+
+    async def fake_summarize(ia, anterior, conversa_):
+        visto["anterior"] = anterior
+        return "novo resumo"
+
+    monkeypatch.setattr(ai, "summarize_conversation", fake_summarize)
+
+    memoria = ConversationMemory(history, summary_every=1)
+    await memoria.maybe_refresh_summary(None, inbound.conversation_id)
+
+    assert "anterior" in visto, "a atualizacao rolling precisa ter rodado"
+    assert RECUSA_LEGADA not in visto["anterior"]
+    assert "Total R$ 100,00." in visto["anterior"]

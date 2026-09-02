@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from typing import Protocol
@@ -56,6 +57,57 @@ class ConversationSummary:
 CONTEXT_ROLES = ("user", "assistant")
 INBOUND_CONTEXT_STATUS = ("completed", "processing")
 
+# A recusa fixa que o guard emitia antes da fase 0. Ela vive aqui, e so
+# aqui, como compatibilidade com o que ja esta gravado.
+#
+# Duas razoes para nao deixa-la voltar como contexto: o modelo a lia como
+# exemplo do proprio comportamento e passava a imita-la; e ela nem sempre
+# significou recusa de dominio -- uma falha do provedor produzia este mesmo
+# texto, entao como registro de conversa ela e ambigua.
+RECUSAS_LEGADAS = (
+    "O Finbox responde apenas sobre finanças e documentos financeiros.",
+    "Eu fico focado nas suas finanças. Se quiser, posso continuar analisando "
+    "sua fatura, seus gastos ou seus investimentos.",
+)
+
+# Mantido para quem importava o nome antigo; a primeira e a original.
+RECUSA_LEGADA = RECUSAS_LEGADAS[0]
+
+_PADROES_RECUSA_LEGADA = tuple(
+    re.compile(r"\s+".join(re.escape(palavra) for palavra in recusa.split()))
+    for recusa in RECUSAS_LEGADAS
+)
+
+
+def _espacos_normalizados(texto):
+    return " ".join((texto or "").split())
+
+
+def _e_recusa_legada(conteudo) -> bool:
+    """Compara ignorando espacamento: o texto gravado varia na formatacao."""
+    normalizado = _espacos_normalizados(conteudo)
+
+    return any(
+        normalizado == _espacos_normalizados(recusa)
+        for recusa in RECUSAS_LEGADAS
+    )
+
+
+def normalizar_resumo_legado(resumo):
+    """Remove a recusa legada de um resumo ja persistido.
+
+    O banco nao muda; a limpeza acontece em toda leitura. Sem isto o texto
+    contaminado continuaria chegando ao prompt de resposta e, pior, seria
+    reciclado para dentro do proximo resumo rolling.
+    """
+    if resumo is None:
+        return None
+
+    for padrao in _PADROES_RECUSA_LEGADA:
+        resumo = padrao.sub("", resumo)
+
+    return resumo
+
 
 def is_context_eligible(message: HistoryMessage) -> bool:
     if message.role not in CONTEXT_ROLES:
@@ -63,6 +115,8 @@ def is_context_eligible(message: HistoryMessage) -> bool:
     if message.kind == "command":
         return False
     if not (message.content or "").strip():
+        return False
+    if _e_recusa_legada(message.content):
         return False
     if message.direction == "inbound":
         return message.processing_status in INBOUND_CONTEXT_STATUS

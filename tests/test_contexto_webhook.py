@@ -34,12 +34,7 @@ def cliente(monkeypatch):
     monkeypatch.setattr(authorization, "ALLOWED_GROUP_ID", "")
 
     history = InMemoryHistory()
-    visto = {"guard": [], "guard_resumo": [], "resposta": []}
-
-    async def guard(ia, conversa, resumo=None):
-        visto["guard"].append([(m.role, m.content) for m in conversa])
-        visto["guard_resumo"].append(resumo)
-        return True
+    visto = {"resposta": []}
 
     async def responder(ia, conversa, resumo=None):
         visto["resposta"].append(
@@ -47,7 +42,6 @@ def cliente(monkeypatch):
         )
         return "Resposta do modelo"
 
-    monkeypatch.setattr(main, "classify_financial_topic", guard)
     monkeypatch.setattr(main, "answer_financial_question", responder)
 
     def handler(request):
@@ -79,16 +73,6 @@ def test_a_segunda_mensagem_chega_ao_modelo_com_a_primeira_troca(cliente):
         ("assistant", "Resposta do modelo"),
         ("user", "e o maior gasto?"),
     ]
-
-
-def test_o_guard_tambem_ve_a_janela(cliente):
-    client, _, visto = cliente
-
-    client.post("/webhook", json=payload("Analise minha fatura", "M1"), headers=HEADERS)
-    client.post("/webhook", json=payload("e o maior gasto?", "M2"), headers=HEADERS)
-
-    assert visto["guard"][1][-1] == ("user", "e o maior gasto?")
-    assert ("assistant", "Resposta do modelo") in visto["guard"][1]
 
 
 def test_a_mensagem_atual_nao_aparece_duplicada(cliente):
@@ -158,4 +142,3 @@ def test_o_resumo_guardado_chega_ao_modelo(cliente):
 
     _, resumo = visto["resposta"][1]
     assert resumo == "Ja falamos de fatura."
-    assert visto["guard_resumo"][1] == "Ja falamos de fatura."

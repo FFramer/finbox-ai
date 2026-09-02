@@ -343,3 +343,82 @@ async def test_reprocessar_o_mesmo_documento_nao_duplica():
     await history.record_transactions(inbound, _transacoes())
 
     assert len(history.transactions_for(inbound.message_id)) == 2
+
+
+# --- fase 0: recusa legada fora do contexto -------------------------------
+
+def _mensagem(content, direction="outbound", role="assistant"):
+    from app.history import HistoryMessage
+    from datetime import datetime, timezone
+
+    return HistoryMessage(
+        id=1, conversation_id=9, direction=direction, role=role, kind="text",
+        content=content, processing_status="completed",
+        delivery_status="sent" if direction == "outbound" else None,
+        provider_message_id=None, reply_to_message_id=None,
+        occurred_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+
+
+def test_recusa_legada_nao_e_elegivel_a_contexto():
+    """Ela ensinava o modelo a recusar; e artefato de bug, nao conversa."""
+    from app.history import RECUSA_LEGADA, is_context_eligible
+
+    assert is_context_eligible(_mensagem(RECUSA_LEGADA)) is False
+
+
+def test_recusa_legada_com_espacamento_diferente_tambem_sai():
+    from app.history import RECUSA_LEGADA, is_context_eligible
+
+    bagunçado = "  " + RECUSA_LEGADA.replace(" ", "  ") + chr(10)
+
+    assert is_context_eligible(_mensagem(bagunçado)) is False
+
+
+def test_resposta_comum_do_assistente_continua_elegivel():
+    """O filtro nao pode comer resposta legitima."""
+    from app.history import is_context_eligible
+
+    assert is_context_eligible(_mensagem("Voce gastou R$ 1.074,67.")) is True
+
+
+def test_resumo_legado_perde_a_frase_de_recusa():
+    """Resumo ja gravado carrega a recusa; o banco nao muda, a leitura sim."""
+    from app.history import RECUSA_LEGADA, normalizar_resumo_legado
+
+    resumo = f"Falamos da fatura. {RECUSA_LEGADA} O total foi R$ 2.715,71."
+    limpo = normalizar_resumo_legado(resumo)
+
+    assert RECUSA_LEGADA not in limpo
+    assert "Falamos da fatura." in limpo
+    assert "R$ 2.715,71" in limpo
+
+
+def test_normalizar_resumo_aceita_none_e_texto_limpo():
+    from app.history import normalizar_resumo_legado
+
+    assert normalizar_resumo_legado(None) is None
+    assert normalizar_resumo_legado("resumo limpo") == "resumo limpo"
+
+
+def test_as_duas_versoes_da_recusa_fixa_saem_do_contexto():
+    """O texto da recusa foi reescrito uma vez; o historico tem as duas."""
+    from app.history import RECUSAS_LEGADAS, is_context_eligible
+
+    assert len(RECUSAS_LEGADAS) >= 2
+
+    for recusa in RECUSAS_LEGADAS:
+        assert is_context_eligible(_mensagem(recusa)) is False, recusa
+
+
+def test_recusa_reescrita_tambem_sai_do_resumo():
+    from app.history import normalizar_resumo_legado
+
+    nova = (
+        "Eu fico focado nas suas finanças. Se quiser, posso continuar "
+        "analisando sua fatura, seus gastos ou seus investimentos."
+    )
+    limpo = normalizar_resumo_legado(f"Falamos da fatura. {nova} Total R$ 10,00.")
+
+    assert "fico focado" not in limpo
+    assert "Total R$ 10,00." in limpo
