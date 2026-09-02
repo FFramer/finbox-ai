@@ -26,9 +26,7 @@ guard: allowlist          ──── ignora quem não está autorizado
    ↓
 comandos /ativar /desativar ── estado persistido no Supabase
    ↓
-monta o contexto      ─────── resumo da conversa + últimas mensagens
-   ↓
-guard: é assunto financeiro? ─ recusa o que está fora do domínio
+monta o contexto      ─────── resumo + últimas mensagens + lançamentos
    ↓
 ┌─ texto ─────────────┐   ┌─ PDF ──────────────────┐
 │ modelo responde     │   │ pypdf extrai o texto   │
@@ -92,13 +90,11 @@ cp .env.example .env
 | `ALLOWED_PHONE` | ao menos um | Telefone de quem pode usar (só dígitos) |
 | `ALLOWED_GROUP_ID` | não | Grupo autorizado; vazio bloqueia todos |
 | `OPENROUTER_API_KEY` | sim | Chave da OpenRouter |
-| `OPENROUTER_MODEL_GUARD` | sim | Modelo do classificador |
 | `OPENROUTER_MODEL_ANSWER` | sim | Modelo das respostas e da extração |
 | `SUPABASE_URL` | não | Sem ela o estado não sobrevive a restart |
 | `SUPABASE_KEY` | não | Chave **secreta** (`service_role` / `sb_secret_`) |
 | `EXPOSE_DOCS` | não | `1` publica `/docs`; padrão é desligado |
 | `HISTORY_WINDOW` | não | Mensagens no contexto; padrão 20 |
-| `GUARD_WINDOW` | não | Mensagens vistas pelo guard; padrão 6 |
 | `SUMMARY_EVERY` | não | Mensagens entre resumos; padrão 20 |
 | `HISTORY_MAX_CHARS` | não | Teto do contexto em caracteres; padrão 12000 |
 | `STUCK_AFTER_MINUTES` | não | Idade para varrer órfãs na subida; padrão 15 |
@@ -160,9 +156,11 @@ túnel: o webhook aponta para o endereço interno e o evento nunca sai da máqui
 | Mensagem | Resposta |
 |---|---|
 | `Como funciona o CDI?` | resposta financeira do modelo |
-| `Quem ganhou o jogo ontem?` | recusa: fora do domínio |
+| `Quem ganhou o jogo ontem?` | recusa curta do modelo, redirecionando para finanças |
 | `/desativar` | `Finbox desativado.` |
 | `/ativar` | `Finbox ativado.` |
+| `sim, quero ver` | continua o assunto anterior usando o histórico |
+| `quanto gastei de Uber?` | responde pelos lançamentos gravados da fatura |
 | *fatura.pdf* | resumo com total, categorias e maior compra |
 
 Exemplo de resumo:
@@ -219,13 +217,18 @@ costuma ficar exposta em uma URL pública para receber o webhook.
 
 ## Limitações conhecidas
 
-- **O guard de domínio é uma barreira mole.** Um classificador por LLM pode
-  ser contornado por injeção de prompt. O prompt instrui a tratar o conteúdo
-  do usuário como texto, não como ordem, mas isso reduz o risco sem eliminá-lo.
-  A allowlist é a barreira real de segurança.
+- **O escopo financeiro é responsabilidade do prompt, não de um gate.** Não
+  há classificador separado: a mesma chamada que responde decide se o assunto
+  é alheio a finanças. Isso pode ser contornado por injeção de prompt. A
+  allowlist é a barreira real de segurança, e ela é determinística.
+- **Números em texto livre não têm garantia do backend.** Totais de documento
+  e os agregados por categoria e por mês são somados em Python; o que o modelo
+  escreve fora disso é instrução de prompt, não invariante.
 - **PDF digitalizado não é lido.** Sem texto selecionável não há OCR; o
   Finbox avisa em vez de responder que a fatura está vazia.
 - **Somente PDF**, até 10 MB.
+- **Comparação entre faturas ainda não foi exercitada com dados reais**: só
+  existe uma fatura registrada, de um único mês.
 - **Uma allowlist única**, sem múltiplos usuários.
 - **Sem RAG ainda.** O modelo recebe o resumo da conversa e as últimas
   mensagens; busca semântica sobre o histórico inteiro fica para depois.
