@@ -617,3 +617,66 @@ def test_lancamentos_gravados_chegam_ao_modelo(monkeypatch):
     assert "2026-07" in bloco and "2026-08" in bloco
     assert "R$ 200,00" in bloco
     app.dependency_overrides.clear()
+
+
+# --- /reset: so o admin apaga o historico ---------------------------------
+
+def _cliente_de_reset(monkeypatch, admin="5511999999999"):
+    from app.history import InMemoryHistory
+
+    history = InMemoryHistory()
+    c, enviados, _ = _cliente_de_texto(monkeypatch)
+    monkeypatch.setattr(authorization, "ADMIN_PHONE", admin)
+    monkeypatch.setattr(authorization, "ADMIN_LID", "")
+    app.dependency_overrides[main.get_history_store] = lambda: history
+    return c, enviados, history
+
+
+def test_reset_do_admin_apaga_o_historico(monkeypatch):
+    c, enviados, history = _cliente_de_reset(monkeypatch)
+
+    c.post("/webhook", json=msg("quanto gastei?"), headers=HEADERS)
+    r = c.post("/webhook", json=msg("/reset"), headers=HEADERS)
+
+    assert r.status_code == 200
+    assert history.messages == {}, "nada pode sobrar do historico"
+    assert enviados[-1]["text"], "o usuario precisa saber que apagou"
+    app.dependency_overrides.clear()
+
+
+def test_reset_de_quem_nao_e_admin_e_ignorado(monkeypatch):
+    """Estar autorizado a conversar nao autoriza a destruir a conversa."""
+    c, enviados, history = _cliente_de_reset(monkeypatch, admin="5599999999999")
+
+    c.post("/webhook", json=msg("quanto gastei?"), headers=HEADERS)
+    antes = len(history.messages)
+    r = c.post("/webhook", json=msg("/reset"), headers=HEADERS)
+
+    assert r.json()["processed"] is False
+    assert len(history.messages) >= antes, "nada pode ser apagado"
+    app.dependency_overrides.clear()
+
+
+def test_reset_sem_admin_configurado_nao_apaga(monkeypatch):
+    """Falha fechado: sem ADMIN_PHONE ninguem apaga."""
+    c, enviados, history = _cliente_de_reset(monkeypatch, admin="")
+
+    c.post("/webhook", json=msg("quanto gastei?"), headers=HEADERS)
+    r = c.post("/webhook", json=msg("/reset"), headers=HEADERS)
+
+    assert r.json()["processed"] is False
+    assert history.messages != {}
+    app.dependency_overrides.clear()
+
+
+def test_reset_funciona_com_o_bot_desligado(monkeypatch):
+    """Como /ativar: se dependesse do estado ligado, seria irrecuperavel."""
+    from app.state import InMemoryBotState, get_state_store
+
+    c, enviados, history = _cliente_de_reset(monkeypatch)
+    app.dependency_overrides[get_state_store] = lambda: InMemoryBotState(False)
+
+    c.post("/webhook", json=msg("/reset"), headers=HEADERS)
+
+    assert history.messages == {}
+    app.dependency_overrides.clear()

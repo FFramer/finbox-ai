@@ -452,3 +452,48 @@ async def test_lancamentos_de_outra_conversa_nao_vazam():
     linhas = await history.transactions_for_conversation(999)
 
     assert linhas == []
+
+
+# --- /reset: apagar a conversa -------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reset_apaga_mensagens_resumo_e_lancamentos():
+    history = InMemoryHistory()
+    inbound = await history.record_inbound(documento_event("DOC-R"))
+    await history.mark_inbound(inbound, "completed")
+    await history.record_transactions(inbound, _transacoes())
+    await history.record_outbound(
+        inbound, "resumo", provider_message_id="OUT-R", delivered=True
+    )
+    await history.save_summary(
+        inbound.conversation_id, summary="resumo antigo",
+        covers_through_message_id=inbound.message_id, covered_message_count=1,
+        model="m", prompt_version="v1", expected_previous_message_id=None,
+    )
+
+    apagadas = await history.reset_conversation(inbound.conversation_id)
+
+    assert apagadas == 2, "duas mensagens: o documento e a resposta"
+    assert await history.recent_messages(inbound.conversation_id) == []
+    assert await history.conversation_summary(inbound.conversation_id) is None
+    assert await history.transactions_for_conversation(
+        inbound.conversation_id
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_reset_de_conversa_vazia_nao_quebra():
+    history = InMemoryHistory()
+
+    assert await history.reset_conversation(999) == 0
+
+
+@pytest.mark.asyncio
+async def test_reset_nao_atinge_outra_conversa():
+    history = InMemoryHistory()
+    a = await history.record_inbound(documento_event("DOC-A"))
+    await history.record_transactions(a, _transacoes())
+
+    await history.reset_conversation(999)
+
+    assert len(await history.transactions_for_conversation(a.conversation_id)) == 2

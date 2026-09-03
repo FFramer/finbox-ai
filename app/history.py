@@ -185,6 +185,8 @@ class HistoryStore(Protocol):
         expected_previous_message_id: int | str | None,
     ) -> bool: ...
 
+    async def reset_conversation(self, conversation_id: int | str) -> int: ...
+
     async def fail_stuck_processing(self, older_than: datetime) -> int: ...
 
 
@@ -416,6 +418,35 @@ class InMemoryHistory:
             ]
 
         return len(linhas)
+
+    async def reset_conversation(self, conversation_id) -> int:
+        """Apaga a conversa inteira e devolve quantas mensagens sairam.
+
+        Historico, resumo e lancamentos vao juntos: um reset que deixasse
+        parte do contexto para tras nao seria reset.
+        """
+        alvo = int(conversation_id)
+
+        async with self._lock:
+            ids = [
+                mid for mid, m in self.messages.items()
+                if int(m.conversation_id) == alvo
+            ]
+            for mid in ids:
+                del self.messages[mid]
+                self.transactions.pop(mid, None)
+
+            self._provider_ids = {
+                chave: valor for chave, valor in self._provider_ids.items()
+                if chave[0] != alvo
+            }
+            self.summaries.pop(str(alvo), None)
+            self.conversations = {
+                chave: conversa for chave, conversa in self.conversations.items()
+                if int(conversa["id"]) != alvo
+            }
+
+        return len(ids)
 
     def transactions_for(self, message_id) -> list[dict]:
         return list(self.transactions.get(int(message_id), []))

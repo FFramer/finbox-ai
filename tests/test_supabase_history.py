@@ -491,3 +491,36 @@ async def test_lancamentos_da_conversa_vem_do_banco_ordenados():
     assert capturado["params"]["conversation_id"] == "eq.9"
     # desc + limit pega as mais recentes; a ordem util e cronologica.
     assert [l["position"] for l in linhas] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_reset_chama_a_rpc_e_devolve_o_total_apagado():
+    capturado = {}
+
+    def handler(request):
+        capturado["path"] = request.url.path
+        capturado["body"] = json.loads(request.read())
+        return httpx.Response(200, json=81)
+
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        total = await SupabaseHistory(client).reset_conversation(9)
+
+    assert capturado["path"].endswith("/rpc/reset_conversation")
+    assert capturado["body"]["p_conversation_id"] == 9
+    assert total == 81
+
+
+@pytest.mark.asyncio
+async def test_falha_no_reset_vira_history_error():
+    def handler(request):
+        return httpx.Response(500, text="boom")
+
+    async with httpx.AsyncClient(
+        base_url="https://projeto.supabase.co/rest/v1",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(HistoryError):
+            await SupabaseHistory(client).reset_conversation(9)

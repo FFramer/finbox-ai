@@ -23,7 +23,7 @@ from app.adapters.evolution_adapter import (
 from app.adapters.supabase_history_adapter import SupabaseHistory
 from app.ai import AIError, answer_financial_question
 from app.analise import analisar, responder_sobre, resumir, somar
-from app.authorization import is_authorized
+from app.authorization import is_admin, is_authorized
 from app.commands import Command, parse_command
 from app.documento import (
     DocumentoInvalido,
@@ -459,6 +459,31 @@ async def webhook(
         )
         await _mark_before_ack(history, inbound, "completed")
         return reply
+
+    if comando is Command.RESET:
+        # Apagar historico e destrutivo e irreversivel: exige ser o dono,
+        # nao apenas estar autorizado a conversar. Sem ADMIN configurado
+        # ninguem passa, como na allowlist.
+        if not is_admin(evento):
+            await _mark_before_ack(history, inbound, "ignored", "nao_admin")
+            return {"received": True, "processed": False, "reason": "nao_admin"}
+
+        # Responder antes de apagar: a resposta se liga a mensagem e a
+        # conversa que o reset vai remover. Na ordem inversa, gravar a
+        # confirmacao falharia por referencia a uma conversa inexistente.
+        await _responder(
+            client, history, inbound, evento, "Historico apagado."
+        )
+
+        try:
+            total = await history.reset_conversation(inbound.conversation_id)
+        except HistoryError as exc:
+            print(f"[history] falha ao apagar a conversa: {exc}")
+            return {"received": True, "processed": False, "reason": "reset_falhou"}
+
+        # Sem marcar a mensagem: ela acabou de deixar de existir.
+        return {"received": True, "processed": True, "reason": "reset",
+                "mensagens_apagadas": total}
 
     if not estado.is_enabled():
         await _mark_before_ack(history, inbound, "ignored", "disabled")

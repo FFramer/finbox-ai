@@ -13,7 +13,13 @@ O LID e estável por contato, mas só e descoberto capturando uma mensagem
 daquela pessoa. Por isso os dois formatos são suportados.
 """
 
-from app.config import ALLOWED_GROUP_ID, ALLOWED_LID, ALLOWED_PHONE
+from app.config import (
+    ADMIN_LID,
+    ADMIN_PHONE,
+    ALLOWED_GROUP_ID,
+    ALLOWED_LID,
+    ALLOWED_PHONE,
+)
 
 PHONE_SUFFIX = "@s.whatsapp.net"
 LID_SUFFIX = "@lid"
@@ -47,3 +53,26 @@ def is_authorized(event):
             return False
 
     return _author_is_allowed(author)
+
+
+def is_admin(event):
+    """Diz se o autor e o dono da instancia.
+
+    Portao de /reset, que apaga historico. Separado de is_authorized: estar
+    autorizado a conversar nao autoriza a destruir a conversa.
+
+    Nega quando nada esta configurado, pelo mesmo motivo que a allowlist
+    nega: um guard que falha aberto nao e um guard.
+    """
+    author = event.author_id
+
+    if not author:
+        return False
+
+    # Em grupo o autor chega como LID; so o telefone nunca casaria.
+    if author.endswith(LID_SUFFIX):
+        permitido = _digits(ADMIN_LID)
+    else:
+        permitido = _digits(ADMIN_PHONE)
+
+    return bool(permitido) and _digits(author) == permitido

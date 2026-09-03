@@ -30,6 +30,16 @@ EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE")
 ALLOWED_PHONE = os.getenv("ALLOWED_PHONE")
 ALLOWED_LID = os.getenv("ALLOWED_LID")
 ALLOWED_GROUP_ID = os.getenv("ALLOWED_GROUP_ID")
+
+# Quem pode apagar o historico. Separado da allowlist de proposito: se ela
+# um dia tiver mais de uma pessoa, /reset continua sendo so do dono. Sem
+# configurar, ninguem apaga -- a mesma escolha de falhar fechado que vale
+# para a autorizacao.
+#
+# Os dois formatos existem porque em grupo o WhatsApp identifica o autor
+# pelo LID, nunca pelo telefone.
+ADMIN_PHONE = os.getenv("ADMIN_PHONE")
+ADMIN_LID = os.getenv("ADMIN_LID")
 SUPABASE_URL = normalizar_url(os.getenv("SUPABASE_URL"))
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")

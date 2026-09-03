@@ -6,6 +6,7 @@ from enum import Enum
 class Command(Enum):
     ATIVAR = "/ativar"
     DESATIVAR = "/desativar"
+    RESET = "/reset"
 
 
 _POR_TEXTO = {c.value: c for c in Command}

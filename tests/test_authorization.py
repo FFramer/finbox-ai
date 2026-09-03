@@ -155,3 +155,60 @@ def test_conversa_direta_nao_depende_do_grupo_configurado(config_grupo):
     config_grupo(phone="5511999999999", grupo="")
 
     assert is_authorized(evento("5511999999999@s.whatsapp.net")) is True
+
+
+# --- admin: quem pode apagar o historico ---------------------------------
+
+def _evento(autor, grupo=False):
+    from app.parser import ParsedEvent
+
+    chat = "120363400000000000@g.us" if grupo else autor
+
+    return ParsedEvent(
+        chat_id=chat, from_me=False, is_group=grupo, text="/reset",
+        message_type="conversation", author_id=autor, push_name="Fabio",
+    )
+
+
+def test_admin_reconhecido_pelo_telefone(monkeypatch):
+    from app import authorization
+
+    monkeypatch.setattr(authorization, "ADMIN_PHONE", "5521988890463")
+    monkeypatch.setattr(authorization, "ADMIN_LID", "")
+
+    assert authorization.is_admin(
+        _evento("5521988890463@s.whatsapp.net")
+    ) is True
+
+
+def test_admin_reconhecido_pelo_lid_em_grupo(monkeypatch):
+    """Em grupo o autor chega como LID; so o telefone nunca casaria."""
+    from app import authorization
+
+    monkeypatch.setattr(authorization, "ADMIN_PHONE", "5521988890463")
+    monkeypatch.setattr(authorization, "ADMIN_LID", "166674963632195")
+
+    assert authorization.is_admin(
+        _evento("166674963632195@lid", grupo=True)
+    ) is True
+
+
+def test_outro_numero_nao_e_admin(monkeypatch):
+    from app import authorization
+
+    monkeypatch.setattr(authorization, "ADMIN_PHONE", "5521988890463")
+    monkeypatch.setattr(authorization, "ADMIN_LID", "")
+
+    assert authorization.is_admin(_evento("5511999999999@s.whatsapp.net")) is False
+
+
+def test_sem_admin_configurado_ninguem_e_admin(monkeypatch):
+    """Falha fechado: um guard que falha aberto nao e um guard."""
+    from app import authorization
+
+    monkeypatch.setattr(authorization, "ADMIN_PHONE", "")
+    monkeypatch.setattr(authorization, "ADMIN_LID", "")
+
+    assert authorization.is_admin(
+        _evento("5521988890463@s.whatsapp.net")
+    ) is False

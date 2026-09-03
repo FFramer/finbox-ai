@@ -177,6 +177,26 @@ class SupabaseHistory:
         linhas.reverse()
         return linhas
 
+    async def reset_conversation(self, conversation_id) -> int:
+        """Apaga a conversa via RPC, como toda escrita deste adapter."""
+        response = await self._request(
+            "POST",
+            "/rpc/reset_conversation",
+            json={"p_conversation_id": int(conversation_id)},
+        )
+
+        try:
+            total = response.json()
+        except ValueError as exc:
+            raise HistoryError(
+                "Supabase devolveu resposta invalida ao apagar a conversa"
+            ) from exc
+
+        if isinstance(total, list):
+            total = total[0] if total else 0
+
+        return int(total or 0)
+
     async def mark_inbound(
         self, ref: MessageRef, status: str, reason: str | None = None
     ) -> None:
